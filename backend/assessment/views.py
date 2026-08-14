@@ -1,12 +1,13 @@
 from django.shortcuts import render
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Subquery
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
 from assessment.models import AssessmentStructure
 from assessment.serializers import AssessmentStructureSerializer, SubsectionListSerializer
+from question.pagination import DefaultPagination
 
 class AssessmentStructureCreateAPIView(APIView):
 
@@ -149,8 +150,8 @@ class AssessmentStructureCreateAPIView(APIView):
 
             section_id=section_id,
             section_code=section_code,
-            section_name=data["section_name"],
-            section_display_order=data["section_display_order"],
+            section_name=data.get("section_name"),
+            section_display_order=data.get("section_display_order"),
 
             subsection_id=subsection_id,
             subsection_code=subsection_code,
@@ -234,3 +235,74 @@ class SectionWiseSubsectionListAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+        
+class SubsectionListAPIView(APIView):
+
+    pagination_class = DefaultPagination
+
+    def get(self, request):
+
+        # Get one structure row for each subsection
+        subsection_ids = (
+            AssessmentStructure.objects
+            .filter(status="ACTIVE")
+            .values("subsection_id")
+            .distinct()
+        )
+
+        subsections = (
+            AssessmentStructure.objects
+            .filter(
+                status="ACTIVE",
+                subsection_id__in=Subquery(
+                    subsection_ids.values("subsection_id")
+                )
+            )
+            .values(
+                "subsection_id",
+                "subsection_code",
+                "subsection_name",
+                "subsection_description",
+                "subsection_display_order",
+                "time_limit_minutes",
+                "instructions",
+            )
+            .order_by(
+                # "subsection_display_order",
+                "subsection_id"
+            )
+        )
+
+        paginator = self.pagination_class()
+
+        page = paginator.paginate_queryset(
+            subsections,
+            request,
+            view=self
+        )
+
+        data = []
+
+        for subsection in page:
+            data.append({
+                "subsection_id": subsection["subsection_id"],
+                "subsection_code": subsection["subsection_code"],
+                "subsection_name": subsection["subsection_name"],
+                "subsection_description": subsection[
+                    "subsection_description"
+                ],
+                "subsection_display_order": subsection[
+                    "subsection_display_order"
+                ],
+                "time_limit_minutes": subsection[
+                    "time_limit_minutes"
+                ],
+                "instructions": subsection["instructions"],
+            })
+
+        return paginator.get_paginated_response({
+            "success": True,
+            "subsections": data
+        })
+        
+        

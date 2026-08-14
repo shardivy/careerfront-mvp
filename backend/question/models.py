@@ -40,7 +40,7 @@ class Question(models.Model):
     question_text = models.TextField()
 
     question_image = models.FileField(
-        upload_to="questions/",
+        upload_to="questions/images/",
         blank=True,
         null=True
     )
@@ -54,7 +54,7 @@ class Question(models.Model):
     )
 
     option_image = models.FileField(
-        upload_to="question_options/",
+        upload_to="questions/question_options/",
         blank=True,
         null=True
     )
@@ -72,7 +72,9 @@ class Question(models.Model):
     # -----------------------------------------
     marks = models.DecimalField(
         max_digits=6,
-        decimal_places=2
+        decimal_places=2,
+        null=True,
+        blank=True
     )
 
     negative_marks = models.DecimalField(

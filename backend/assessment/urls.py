@@ -1,7 +1,7 @@
 from django.urls import path
 
 
-from assessment.views import AssessmentStructureCreateAPIView, SectionListAPIView, SectionWiseSubsectionListAPIView
+from assessment.views import AssessmentStructureCreateAPIView, SectionListAPIView, SectionWiseSubsectionListAPIView, SubsectionListAPIView
 
 urlpatterns = [
     path(
@@ -13,6 +13,11 @@ urlpatterns = [
         "sections/",
         SectionListAPIView.as_view(),
         name="section-list",
+    ),
+    path(
+        "subsections/",
+        SubsectionListAPIView.as_view(),
+        name="subsection-list"
     ),
     path(
         "sections/<int:section_id>/subsections/",

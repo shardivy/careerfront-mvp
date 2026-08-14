@@ -42,9 +42,9 @@ class AssessmentStructure(models.Model):
     # Section
     # -----------------------------------------
     section_id = models.BigIntegerField()
-    section_code = models.CharField(max_length=30)
-    section_name = models.CharField(max_length=100)
-    section_display_order = models.IntegerField()
+    section_code = models.CharField(max_length=30, null=True, blank=True)
+    section_name = models.CharField(max_length=100, null=True, blank=True)
+    section_display_order = models.IntegerField(null=True, blank=True)
 
     # -----------------------------------------
     # Subsection
