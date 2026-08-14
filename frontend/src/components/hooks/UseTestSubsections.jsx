@@ -83,7 +83,7 @@ const useAllSubsections = () => {
  * enough for listing tabs and showing a question count. For a single
  * subsection with REAL questions, use `useTestSubsection` below.
  */
-export const UseTestSubsections = (testType) => {
+export const useTestSubsections = (testType) => {
   const { bySection, loading, error } = useAllSubsections();
 
   const tabs = useMemo(() => {
