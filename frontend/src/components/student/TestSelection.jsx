@@ -5,7 +5,7 @@ import theme from "../../theme/theme";
 import { SECTION_META, DEFAULT_SECTION_ICON, SUBSECTION_TO_SECTION } from "./Testdata";
 import { isTestComplete } from "./Testprogress";
 import { useTestSections } from "../hooks/UseTestSubsections";
-import Skeleton from "../ui/Skeleton";
+import Skeleton from "../ui/skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
 
 // Grid columns scale with how many tests exist, instead of being

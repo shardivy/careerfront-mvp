@@ -12,7 +12,7 @@ import {
 import theme from "../../theme/theme";
 import { useTestSubsection } from "../hooks/UseTestSubsections";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
-import Skeleton from "../ui/Skeleton";
+import Skeleton from "../ui/skeleton";
 import OfflineBanner from "../ui/OfflineBanner";
 import useOnlineStatus from "../hooks/useOnlineStatus";
 import { toast as toastManager, useToastManager } from "@/components/ui/toast";

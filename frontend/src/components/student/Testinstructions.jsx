@@ -5,7 +5,7 @@ import theme from "../../theme/theme";
 import { getSectionName } from "./Testdata";
 import { useTestSubsections } from "../hooks/UseTestSubsections";
 import { isSectionComplete, isTestComplete } from "./Testprogress";
-import Skeleton from "../ui/Skeleton";
+import Skeleton from "../ui/skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
 
 const TestInstructions = () => {

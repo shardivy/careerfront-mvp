@@ -26,7 +26,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { getQuestions } from "../../slices/questionSlice";
 import { fetchGrades } from "../../slices/gradeSlice";
 import { fetchSubsections } from "../../slices/subsectionSlice";
-import Skeleton from "../ui/Skeleton";
+import Skeleton from "../ui/skeleton";
 
 /**
  * QuestionLibrary
