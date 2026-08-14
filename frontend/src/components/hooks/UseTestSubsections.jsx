@@ -11,7 +11,7 @@ import {
   SUBSECTION_TO_SECTION,
   UNASSIGNED_SECTION_CODE,
   getSectionName,
-} from "../student/TestData";
+} from "../student/Testdata";
 
 /**
  * The backend now returns ONE flat list of every subsection the student

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { BookOpen, AlertTriangle, ChevronRight, Check } from "lucide-react";
 import theme from "../../theme/theme";
-import { getSectionName } from "./TestData";
+import { getSectionName } from "./Testdata";
 import { useTestSubsections } from "../hooks/useTestSubsections";
 import { isSectionComplete, isTestComplete } from "./Testprogress";
 import Skeleton from "../ui/Skeleton";
