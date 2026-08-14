@@ -3,24 +3,6 @@ import { Compass, Clock } from "lucide-react";
 import theme from "../../theme/theme";
 import Skeleton from "../ui/Skeleton";
 
-/**
- * StudentLayout
- * ------------------------------------------------------------------
- * Global shell + reusable pieces for every student-facing test page.
- *
- * Exports:
- *   - BrandLogo             logo + "TrueMindPath" wordmark
- *   - SectionTimer          self-contained countdown (state, interval,
- *                           formatting, red-under-60s, fires onExpire)
- *   - SectionProgressLabel  "Section N of M: Title" (desktop + mobile)
- *   - SectionProgressDots   "Sections: N/M Active" + the dot/bar row
- *   - TopBar                slot-based header (center/right/below/progressBar)
- *   - StudentLayout (default) page shell: font, bg, topBar + children
- *
- * Any assessment runner composes these instead of re-writing timer
- * state or progress markup itself.
- */
-
 // ---------------------------------------------------------------------
 // Brand
 // ---------------------------------------------------------------------
@@ -31,30 +13,33 @@ export const BrandLogo = ({ size = "default" }) => {
             : "w-8 h-8 sm:w-9 sm:h-9 lg:w-8 lg:h-8";
 
     return (
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-1">
             <div
-                className={`${dims} ${theme.radius.full} flex items-center justify-center`}
-                style={{ backgroundColor: theme.colors.primary }}
+                className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center overflow-hidden"
             >
-                <Compass
-                    className="w-4 h-4 sm:w-5 sm:h-5"
-                    style={{ color: theme.colors.text.white }}
-                    strokeWidth={2.2}
+                <img
+                    src="/logo.png"
+                    alt="TheCareerFront"
+                    className="w-full h-full object-contain"
                 />
             </div>
+
             <span
                 className="hidden sm:inline lg:inline text-base sm:text-lg font-bold tracking-tight"
                 style={{ color: theme.colors.text.heading }}
             >
-                TrueMindPath
+                TheCareerFront
             </span>
         </div>
     );
 };
 
 // ---------------------------------------------------------------------
-// Timer — owns its own countdown. Parent never touches secondsLeft;
-// it just gets notified once, via onExpire, when time runs out.
+// Timer — now driven by an absolute `endsAt` timestamp (epoch ms)
+// instead of a relative `timeLimitSeconds`. The parent computes
+// `endsAt` ONCE per section (Date.now() + duration) and persists it
+// via autosave, so a refresh recomputes "time left" from the same
+// fixed target instead of restarting the clock.
 // ---------------------------------------------------------------------
 const formatTime = (totalSeconds) => {
     const m = Math.floor(totalSeconds / 60).toString().padStart(2, "0");
@@ -63,38 +48,49 @@ const formatTime = (totalSeconds) => {
 };
 
 export const SectionTimer = ({
-    timeLimitSeconds,
-    resetKey, // pass section.id — guards against two sections sharing the same duration
+    endsAt,          // epoch ms — countdown hits zero when Date.now() reaches this
     onExpire,
     loading = false,
     tickMs = 1000,
     lowThreshold = 60,
 }) => {
-    const [secondsLeft, setSecondsLeft] = useState(timeLimitSeconds);
+    const [secondsLeft, setSecondsLeft] = useState(null);
     const expiredRef = useRef(false);
 
-    // Reset the clock whenever we move to a different section.
+    // Keep the latest onExpire in a ref so the tick effect below doesn't
+    // need to restart every time the parent re-creates that callback.
+    const onExpireRef = useRef(onExpire);
     useEffect(() => {
-        setSecondsLeft(timeLimitSeconds);
-        expiredRef.current = false;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [resetKey]);
+        onExpireRef.current = onExpire;
+    }, [onExpire]);
 
     useEffect(() => {
-        if (loading) return;
-        if (secondsLeft <= 0) {
-            if (!expiredRef.current) {
-                expiredRef.current = true;
-                onExpire?.();
-            }
-            return;
+        if (loading || !Number.isFinite(endsAt)) {
+            setSecondsLeft(null);
+            return undefined;
         }
-        const t = setTimeout(() => setSecondsLeft((s) => s - 1), tickMs);
-        return () => clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [secondsLeft, loading, tickMs]);
 
-    if (loading) return <Skeleton className="h-5 w-16" />;
+        expiredRef.current = false;
+
+        // Recompute from Date.now() every tick (instead of decrementing a
+        // counter) so the displayed time is always correct even if the
+        // tab was backgrounded/throttled — and so a fresh mount after a
+        // refresh picks up exactly where it should.
+        const tick = () => {
+            const remaining = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
+            setSecondsLeft(remaining);
+            if (remaining <= 0 && !expiredRef.current) {
+                expiredRef.current = true;
+                onExpireRef.current?.();
+            }
+        };
+
+        tick(); // set immediately, don't wait a full tick to show correct time
+        const interval = setInterval(tick, tickMs);
+        return () => clearInterval(interval);
+    }, [endsAt, loading, tickMs]);
+
+    if (loading || secondsLeft === null) return <Skeleton className="h-5 w-16" />;
 
     return (
         <span
@@ -108,8 +104,7 @@ export const SectionTimer = ({
 };
 
 // ---------------------------------------------------------------------
-// Section progress — label (center/mobile) + the dots/active-count row.
-// Pure display, driven entirely by props.
+// Section progress — unchanged
 // ---------------------------------------------------------------------
 export const SectionProgressLabel = ({
     sectionNumber,
@@ -144,7 +139,7 @@ export const SectionProgressLabel = ({
 
 export const SectionProgressDots = ({
     sectionOrder,
-    getSectionState, // (id) => "current" | "completed" | "upcoming"
+    getSectionState,
     sectionNumber,
     sectionsTotal,
     loading = false,
@@ -182,8 +177,7 @@ export const SectionProgressDots = ({
 };
 
 // ---------------------------------------------------------------------
-// TopBar — generic slot-based header. Stays agnostic of timers/sections
-// so plain pages (like AptitudeTest) can use it with just `right`.
+// TopBar — unchanged
 // ---------------------------------------------------------------------
 export const TopBar = ({
     maxWidth = "max-w-6xl",
@@ -213,7 +207,7 @@ export const TopBar = ({
 };
 
 // ---------------------------------------------------------------------
-// Page shell
+// Page shell — unchanged
 // ---------------------------------------------------------------------
 const StudentLayout = ({ children, topBar, className = "", footer = null }) => {
     return (
