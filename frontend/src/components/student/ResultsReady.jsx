@@ -12,7 +12,7 @@ import {
   Globe2,
 } from "lucide-react";
 import theme from "../../theme/theme";
-import Skeleton from "../ui/Skeleton";
+import Skeleton from "../ui/skeleton";
 
 const ResultsReady = () => {
   const location = useLocation();

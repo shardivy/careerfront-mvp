@@ -4,7 +4,7 @@ import { Loader2, Check, BarChart3, ChevronRight, Minus } from "lucide-react";
 import theme from "../../theme/theme";
 import { useTestSubsections } from "../hooks/UseTestSubsections";
 import { markSectionComplete, areAllTestsComplete, getIncompleteTestTypes, getCompletedSections } from "./Testprogress";
-import Skeleton from "../ui/Skeleton";
+import Skeleton from "../ui/skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
 import { SECTION_META } from "./Testdata";
 

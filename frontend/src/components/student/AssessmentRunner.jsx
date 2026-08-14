@@ -6,7 +6,7 @@ import { useTestSubsections, useTestSubsection } from "../hooks/UseTestSubsectio
 import { isTestComplete, isSectionComplete } from "./Testprogress";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import { useStudentQuestions } from "../hooks/useStudentQuestions";
-import Skeleton from "../ui/Skeleton";
+import Skeleton from "../ui/skeleton";
 import OfflineBanner from "../ui/OfflineBanner";
 import useOnlineStatus from "../hooks/useOnlineStatus";
 import { toast as toastManager, useToastManager } from "@/components/ui/toast";
