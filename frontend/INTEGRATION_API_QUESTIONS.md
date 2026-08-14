@@ -100,7 +100,7 @@ const AssessmentRunner = () => {
   const { testType = "aptitude", sectionId } = useParams();
   
   // Metadata from test data
-  const { tabs } = useTestSubsections(testType);
+  const { tabs } = UseTestSubsections(testType);
   const section = tabs.find((t) => t.id === sectionId);
   
   // Questions from API

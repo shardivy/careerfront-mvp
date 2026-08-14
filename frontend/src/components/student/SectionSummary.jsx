@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Loader2, Check, BarChart3, ChevronRight, Minus } from "lucide-react";
 import theme from "../../theme/theme";
-import { useTestSubsections } from "../hooks/useTestSubsections";
+import { useTestSubsections } from "../hooks/UseTestSubsections";
 import { markSectionComplete, areAllTestsComplete, getIncompleteTestTypes, getCompletedSections } from "./Testprogress";
 import Skeleton from "../ui/Skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";

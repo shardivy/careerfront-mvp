@@ -4,7 +4,7 @@ import { ArrowRight, Check, FileText } from "lucide-react";
 import theme from "../../theme/theme";
 import { SECTION_META, DEFAULT_SECTION_ICON, SUBSECTION_TO_SECTION } from "./Testdata";
 import { isTestComplete } from "./Testprogress";
-import { useTestSections } from "../hooks/useTestSubsections";
+import { useTestSections } from "../hooks/UseTestSubsections";
 import Skeleton from "../ui/Skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
 
