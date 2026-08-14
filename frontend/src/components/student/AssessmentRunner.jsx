@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Flag, ChevronLeft, ChevronRight } from "lucide-react";
 import theme from "../../theme/theme";
 import { useTestSubsections, useTestSubsection } from "../hooks/useTestSubsections";
-import { isTestComplete, isSectionComplete } from "./testProgress";
+import { isTestComplete, isSectionComplete } from "./Testprogress";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import { useStudentQuestions } from "../hooks/useStudentQuestions";
 import Skeleton from "../ui/Skeleton";

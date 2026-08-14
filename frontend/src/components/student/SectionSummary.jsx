@@ -3,10 +3,10 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Loader2, Check, BarChart3, ChevronRight, Minus } from "lucide-react";
 import theme from "../../theme/theme";
 import { useTestSubsections } from "../hooks/useTestSubsections";
-import { markSectionComplete, areAllTestsComplete, getIncompleteTestTypes, getCompletedSections } from "./testProgress";
+import { markSectionComplete, areAllTestsComplete, getIncompleteTestTypes, getCompletedSections } from "./Testprogres";
 import Skeleton from "../ui/Skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
-import { SECTION_META } from "./testData";
+import { SECTION_META } from "./TestData";
 
 const LOADING_STEPS = [
   "Scoring response patterns",
