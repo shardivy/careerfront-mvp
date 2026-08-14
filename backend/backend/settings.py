@@ -41,11 +41,15 @@ INSTALLED_APPS = [
     
     'corsheaders',
     'rest_framework',
+    "storages",
     
     'assessment',
+    'question',
+    'students',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -73,6 +77,8 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'backend.wsgi.application'
+
+CORS_ALLOW_ALL_ORIGINS = True
 
 
 # Database
@@ -127,7 +133,41 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
+AWS_ACCESS_KEY_ID = config("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = config("AWS_SECRET_ACCESS_KEY")
+
+AWS_S3_REGION_NAME = config("AWS_S3_REGION_NAME")
+
+AWS_PUBLIC_BUCKET_NAME = config ("AWS_PUBLIC_BUCKET_NAME")
+AWS_PRIVATE_BUCKET_NAME = config("AWS_PRIVATE_BUCKET_NAME")
+
+AWS_ENVIRONMENT = config("AWS_ENVIRONMENT")
+
+AWS_DEFAULT_ACL = None
+AWS_QUERYSTRING_AUTH = True
+AWS_S3_FILE_OVERWRITE = False
+
+AWS_S3_SIGNATURE_VERSION = "s3v4"
+
+AWS_S3_OBJECT_PARAMETERS = {
+    "CacheControl": "max-age=86400",
+}
+
+AWS_S3_ENDPOINT_URL = f"https://s3.{AWS_S3_REGION_NAME}.amazonaws.com"
+AWS_S3_ADDRESSING_STYLE = "virtual"
+
+STORAGES = {
+    "default": {
+        "BACKEND": "backend.storage.PrivateMediaStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    },
+}
+
 STATIC_URL = 'static/'
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
