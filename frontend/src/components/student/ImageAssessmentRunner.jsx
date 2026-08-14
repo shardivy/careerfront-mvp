@@ -2,66 +2,139 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Flag, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import theme from "../../theme/theme";
-import { getSection } from "./testData";
+import { useTestSubsection } from "../hooks/useTestSubsections";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import Skeleton from "../ui/Skeleton";
 import OfflineBanner from "../ui/OfflineBanner";
 import useOnlineStatus from "../hooks/useOnlineStatus";
+import { toast as toastManager, useToastManager } from "@/components/ui/toast";
 import StudentLayout, { TopBar, SectionTimer } from "../layouts/StudentLayout";
+import { useStudentQuestions } from "../hooks/useStudentQuestions";
 
 const QUESTIONS_PER_PAGE = 10;
 
-// Image-based sections (Visual Reasoning, Mental Agility) where many
-// questions repeat the same prompt text ("Identify the figure that
-// completes the pattern.") and are best scanned one after another.
-//
-// Layout mirrors AssessmentRunner's multi-question view: 10 questions per
-// page, a scrollable question list on the left, and a sticky Navigator
-// panel on the right that jumps to (and scrolls) a given question into
-// view, switching page first if needed.
 const ImageAssessmentRunner = () => {
   const { testType = "aptitude", sectionId } = useParams();
   const navigate = useNavigate();
   const isOnline = useOnlineStatus();
-  const section = getSection(testType, sectionId);
-  const questions = section.questions || [];
+  const isFirstOnlineCheck = useRef(true);
+  const managerFromHook = useToastManager && useToastManager();
+
+  const { section, loading: sectionLoading, error: sectionError } = useTestSubsection(testType, sectionId);
+  const { questions: apiQuestions, loading: apiQuestionsLoading } = useStudentQuestions(section?.dbId);
+  const questions = apiQuestions.length > 0 ? apiQuestions : (section?.questions || []);
   const totalPages = Math.max(1, Math.ceil(questions.length / QUESTIONS_PER_PAGE));
 
   const [pageIndex, setPageIndex] = useState(
-    () => loadAutosave(testType, section.id)?.pageIndex ?? 0
+    () => loadAutosave(testType, sectionId)?.pageIndex ?? 0
   );
   const [answers, setAnswers] = useState(
-    () => loadAutosave(testType, section.id)?.answers ?? {}
+    () => loadAutosave(testType, sectionId)?.answers ?? {}
   );
   const [marked, setMarked] = useState(
-    () => new Set(loadAutosave(testType, section.id)?.marked ?? [])
+    () => new Set(loadAutosave(testType, sectionId)?.marked ?? [])
+  );
+  // NEW: absolute epoch-ms timestamp the timer counts down to. Restored
+  // from autosave so a refresh doesn't reset the clock.
+  const [timeEndsAt, setTimeEndsAt] = useState(
+    () => loadAutosave(testType, sectionId)?.timeEndsAt ?? null
   );
   const [loading, setLoading] = useState(true);
   const submittedRef = useRef(false);
+
+  // How many ms were left on the clock at the moment we went offline.
+  // Non-null only while we're in a "paused" (offline) state.
+  const pausedRemainingRef = useRef(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 300);
     return () => clearTimeout(timer);
   }, []);
 
-  // If the section changes, restore whatever was saved for the new one.
+  // If the subsection changes, restore whatever was saved for the new one.
   useEffect(() => {
-    const saved = loadAutosave(testType, section.id);
+    const saved = loadAutosave(testType, sectionId);
     setPageIndex(saved?.pageIndex ?? 0);
     setAnswers(saved?.answers ?? {});
     setMarked(new Set(saved?.marked ?? []));
+    setTimeEndsAt(saved?.timeEndsAt ?? null);
     submittedRef.current = false;
+    pausedRemainingRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testType, section.id]);
+  }, [testType, sectionId]);
 
-  // Persist progress on every change.
+  const isLoading = loading || sectionLoading || apiQuestionsLoading || !section;
+
+  // Once we know the section's time limit, establish timeEndsAt exactly
+  // ONCE — either from what was restored above, or freshly computed as
+  // Date.now() + limit if this section has never been started before.
   useEffect(() => {
-    saveAutosave(testType, section.id, {
+    if (isLoading) return;
+    if (!Number.isFinite(section?.timeLimitSeconds)) return;
+    if (timeEndsAt) return;
+    setTimeEndsAt(Date.now() + section.timeLimitSeconds * 1000);
+  }, [isLoading, section?.timeLimitSeconds, timeEndsAt]);
+
+  // Toast whenever connectivity flips — skip the very first check on
+  // mount so we don't fire a spurious "Back online" toast immediately.
+  useEffect(() => {
+    if (isFirstOnlineCheck.current) {
+      isFirstOnlineCheck.current = false;
+      return;
+    }
+
+    const manager = managerFromHook || toastManager;
+    const send = (payload) => {
+      if (!manager) return;
+      if (typeof manager.create === "function") return manager.create(payload);
+      if (typeof manager.add === "function") return manager.add(payload);
+      if (typeof manager.push === "function") return manager.push(payload);
+      return undefined;
+    };
+
+    if (isOnline) {
+      send({ title: "Back online", description: "Your connection has been restored.", type: "success" });
+    } else {
+      send({ title: "No internet connection", description: "Please reconnect to continue your assessment.", type: "error" });
+    }
+  }, [isOnline]);
+
+  // Pause the countdown while offline. `timeEndsAt` is an absolute
+  // timestamp, so simply leaving it untouched wouldn't pause anything —
+  // the clock would keep ticking down against real time. Instead, while
+  // offline we repeatedly nudge `timeEndsAt` forward so the *remaining*
+  // time stays frozen at whatever it was the moment we lost connection.
+  // Once back online, we resume counting down from that frozen remainder.
+  useEffect(() => {
+    if (isLoading || !timeEndsAt) return undefined;
+
+    if (!isOnline) {
+      if (pausedRemainingRef.current == null) {
+        pausedRemainingRef.current = Math.max(0, timeEndsAt - Date.now());
+      }
+      const interval = setInterval(() => {
+        setTimeEndsAt(Date.now() + pausedRemainingRef.current);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+
+    if (pausedRemainingRef.current != null) {
+      setTimeEndsAt(Date.now() + pausedRemainingRef.current);
+      pausedRemainingRef.current = null;
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, isLoading]);
+
+  // Persist progress on every change — including timeEndsAt.
+  useEffect(() => {
+    saveAutosave(testType, sectionId, {
       pageIndex,
       answers,
       marked: Array.from(marked),
+      timeEndsAt,
     });
-  }, [testType, section.id, pageIndex, answers, marked]);
+  }, [testType, sectionId, pageIndex, answers, marked, timeEndsAt]);
 
   const handleSelect = (qIndex, optionIndex) => {
     setAnswers((prev) => ({ ...prev, [qIndex]: optionIndex }));
@@ -79,8 +152,8 @@ const ImageAssessmentRunner = () => {
   const handleSubmit = (autoSubmitted = false) => {
     if (submittedRef.current && !autoSubmitted) return;
     submittedRef.current = true;
-    clearAutosave(testType, section.id);
-    navigate(`/test/${testType}/${section.id}/summary`, {
+    clearAutosave(testType, sectionId);
+    navigate(`/test/${testType}/${sectionId}/summary`, {
       state: { answers, totalQuestions: questions.length, autoSubmitted },
     });
   };
@@ -104,8 +177,6 @@ const ImageAssessmentRunner = () => {
     goToPage(pageIndex + 1);
   };
 
-  // Jumps to a given question: switches page first if it's on a different
-  // page, then scrolls the card into view once it's rendered.
   const jumpToQuestion = (qIndex) => {
     const targetPage = Math.floor(qIndex / QUESTIONS_PER_PAGE);
     const scrollToCard = () =>
@@ -145,56 +216,40 @@ const ImageAssessmentRunner = () => {
           sticky
           center={
             <span className="text-base sm:text-lg font-medium">
-              {section.title}
+              {section?.title}
             </span>
           }
           right={
             <SectionTimer
-              timeLimitSeconds={section.timeLimitSeconds}
-              resetKey={section.id}
-              loading={loading}
+              endsAt={timeEndsAt}
+              loading={isLoading}
               onExpire={handleTimeExpire}
             />
           }
-          // below={
-          //   !loading && (
-          //     <div className="border-t border-slate-100 bg-slate-50/60">
-          //       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-2 flex items-center justify-between gap-3">
-          //         <span className="text-sm font-semibold" style={{ color: theme.colors.text.body }}>
-          //           {answeredCount} of {questions.length} answered
-          //         </span>
-          //         <div className="h-1.5 flex-1 max-w-xs rounded-full overflow-hidden bg-slate-200">
-          //           <div
-          //             className="h-full transition-all duration-300"
-          //             style={{
-          //               width: `${(answeredCount / questions.length) * 100}%`,
-          //               backgroundColor: theme.colors.primary,
-          //             }}
-          //           />
-          //         </div>
-          //       </div>
-          //     </div>
-          //   )
-          // }
         />
       }
     >
       {!isOnline && <OfflineBanner />}
 
       <main className="flex-1 px-4 sm:px-6 py-6 sm:py-10">
+        {sectionError && !isLoading && (
+          <p className="max-w-6xl mx-auto text-sm mb-4" style={{ color: "#B91C1C" }}>
+            Couldn't load this section right now. Please refresh the page.
+          </p>
+        )}
+
         <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
 
-          {/* Scrollable question list — 10 per page */}
           <div className="w-full lg:flex-1 min-w-0">
             <div className="flex items-center justify-between mb-5 sm:mb-6">
-              {loading ? (
+              {isLoading ? (
                 <Skeleton className="h-4 w-48" />
               ) : (
                 <span className="text-sm sm:text-base font-semibold tracking-wide uppercase" style={{ color: theme.colors.text.light }}>
                   Page {pageIndex + 1} of {totalPages} · Q{pageStart + 1}–{pageStart + pageQuestions.length} of {questions.length}
                 </span>
               )}
-              {loading ? (
+              {isLoading ? (
                 <Skeleton className="h-4 w-28 hidden sm:block" />
               ) : (
                 <span className="text-sm sm:text-base hidden sm:block" style={{ color: theme.colors.text.light }}>
@@ -203,7 +258,7 @@ const ImageAssessmentRunner = () => {
               )}
             </div>
 
-            {loading ? (
+            {isLoading ? (
               <div className="flex flex-col gap-5">
                 {[1, 2, 3].map((i) => (
                   <div key={i} className={`w-full ${theme.radius.lg} bg-white border px-6 py-6`} style={{ borderColor: theme.colors.border }}>
@@ -313,11 +368,8 @@ const ImageAssessmentRunner = () => {
             )}
           </div>
 
-          {/* Navigator panel — jumps to a question, switching page first if
-              needed, then scrolls it into view. Shows every question across
-              all pages, same as AssessmentRunner's multi-question layout. */}
           <div className={`w-full lg:w-64 shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto ${theme.radius.lg} bg-white border border-slate-200 px-5 py-5 sm:py-6`}>
-            {loading ? (
+            {isLoading ? (
               <Skeleton className="h-4 w-24 mb-4" />
             ) : (
               <h3 className="text-sm font-semibold tracking-wide uppercase mb-4" style={{ color: theme.colors.text.light }}>
@@ -326,7 +378,7 @@ const ImageAssessmentRunner = () => {
             )}
 
             <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-4 gap-2.5 mb-5">
-              {loading
+              {isLoading
                 ? Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-lg" />)
                 : questions.map((_, i) => {
                     const state = getNavState(i);
@@ -346,7 +398,7 @@ const ImageAssessmentRunner = () => {
             </div>
 
             <div className="flex flex-col gap-3">
-              {loading
+              {isLoading
                 ? [1, 2, 3].map((i) => (
                     <div key={i} className="flex items-center gap-2.5">
                       <Skeleton className="w-3.5 h-3.5 rounded-full" />
@@ -369,11 +421,8 @@ const ImageAssessmentRunner = () => {
           </div>
         </div>
 
-        {/* Previous / Next — sits below both the question list and the
-            navigator, same placement as AssessmentRunner's multi-question
-            layout. */}
         <div className="max-w-6xl mx-auto mt-6 flex items-center justify-between gap-3">
-          {loading ? (
+          {isLoading ? (
             <Skeleton className="h-12 w-32 rounded-lg" />
           ) : (
             <button
@@ -394,13 +443,13 @@ const ImageAssessmentRunner = () => {
             </button>
           )}
 
-          {!loading && (
+          {!isLoading && (
             <span className="text-sm sm:text-base hidden sm:block" style={{ color: theme.colors.text.light }}>
               {answeredCount} of {questions.length} answered
             </span>
           )}
 
-          {loading ? (
+          {isLoading ? (
             <Skeleton className="h-12 w-32 rounded-lg" />
           ) : (
             <button
@@ -414,7 +463,7 @@ const ImageAssessmentRunner = () => {
           )}
         </div>
 
-        {!loading && (
+        {!isLoading && (
           <p className="max-w-6xl mx-auto text-sm text-center mt-4 sm:hidden" style={{ color: theme.colors.text.light }}>
             {answeredCount} of {questions.length} answered
           </p>

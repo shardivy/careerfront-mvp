@@ -83,17 +83,38 @@ const ResultsReady = () => {
       {/* Top bar */}
       <header className="w-full px-4 sm:px-8 py-4 sm:py-6 relative z-10">
         <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* <div className="flex items-center gap-2.5 sm:gap-3">
             <div
               className={`w-8 h-8 sm:w-9 sm:h-9 ${theme.radius.md} flex items-center justify-center`}
               style={{ backgroundColor: theme.colors.primary }}
             >
-              <Compass className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: theme.colors.white }} strokeWidth={2.2} />
+            <img
+            src="/logo.png"
+            alt="TheCareerFront"
+            className="w-full h-full object-contain"
+        />
             </div>
             <span className="text-base sm:text-lg font-bold tracking-tight text-white">
-              TrueMindPath
+           TheCareerFront
+            </span>
+          </div> */}
+
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div
+              className="w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center overflow-hidden"
+            >
+              <img
+                src="/logo.png"
+                alt="TheCareerFront"
+                className="w-full h-full object-contain"
+              />
+            </div>
+
+            <span className="text-base sm:text-lg font-bold tracking-tight text-white">
+              TheCareerFront
             </span>
           </div>
+
 
           {loading ? (
             <Skeleton dark className="h-4 w-32" />
@@ -236,19 +257,19 @@ const ResultsReady = () => {
             {loading
               ? [1, 2, 3].map((i) => <Skeleton key={i} dark className="h-8 w-40 rounded-full" />)
               : badges.map(({ icon: Icon, label }) => (
-                  <span
-                    key={label}
-                    className={`inline-flex items-center gap-1.5 sm:gap-2 ${theme.radius.full} px-3.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-medium border`}
-                    style={{
-                      borderColor: "rgba(255,255,255,0.12)",
-                      backgroundColor: "rgba(255,255,255,0.04)",
-                      color: "#CBD5E1",
-                    }}
-                  >
-                    <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" style={{ color: theme.colors.primaryLight }} />
-                    {label}
-                  </span>
-                ))}
+                <span
+                  key={label}
+                  className={`inline-flex items-center gap-1.5 sm:gap-2 ${theme.radius.full} px-3.5 sm:px-4 py-1.5 sm:py-2 text-[11px] sm:text-xs font-medium border`}
+                  style={{
+                    borderColor: "rgba(255,255,255,0.12)",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    color: "#CBD5E1",
+                  }}
+                >
+                  <Icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" style={{ color: theme.colors.primaryLight }} />
+                  {label}
+                </span>
+              ))}
           </div>
         </div>
       </main>

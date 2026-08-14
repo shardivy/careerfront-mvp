@@ -2,9 +2,12 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ChevronRight, Check } from "lucide-react";
 import theme from "../../theme/theme";
-import { getSection } from "./testData";
+import { useTestSubsection } from "../hooks/useTestSubsections";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import Skeleton from "../ui/Skeleton";
+import OfflineBanner from "../ui/OfflineBanner";
+import useOnlineStatus from "../hooks/useOnlineStatus";
+import { toast as toastManager, useToastManager } from "@/components/ui/toast";
 import StudentLayout, { TopBar, SectionTimer } from "../layouts/StudentLayout";
 
 // Gray accent — matches the Rapid Assessment page's accent color (#808080)
@@ -13,34 +16,122 @@ const ACCENT = "#808080";
 const ACCENT_SOFT = "#FFFBEB";
 
 const InterestAssessmentRunner = () => {
+  // NOTE: `testType` is the backend section_code (e.g. "SEC001") and
+  // `sectionId` (kept as the existing route param name) is actually the
+  // subsection_code (e.g. "SUBSEC004") in backend terms. Both are used
+  // as-is below as stable autosave/routing keys — they don't need the
+  // API data to have loaded yet.
   const { testType = "interest", sectionId } = useParams();
   const navigate = useNavigate();
-  const section = getSection(testType, sectionId);
-  const questions = section.questions || [];
+  const isOnline = useOnlineStatus();
+  const isFirstOnlineCheck = useRef(true);
+  const managerFromHook = useToastManager && useToastManager();
 
+  const { section, loading: sectionLoading, error: sectionError } = useTestSubsection(testType, sectionId);
+
+  // Restore any autosaved progress for this subsection. Keyed off the
+  // route param directly so this works before `section` has loaded.
   const [answers, setAnswers] = useState(
-    () => loadAutosave(testType, section.id)?.answers ?? {}
+    () => loadAutosave(testType, sectionId)?.answers ?? {}
+  );
+  // Absolute epoch-ms timestamp the timer counts down to. Restored from
+  // autosave so a refresh resumes the same countdown instead of resetting it.
+  const [timeEndsAt, setTimeEndsAt] = useState(
+    () => loadAutosave(testType, sectionId)?.timeEndsAt ?? null
   );
   const [loading, setLoading] = useState(true);
   const submittedRef = useRef(false);
+
+  // How many ms were left on the clock at the moment we went offline.
+  // Non-null only while we're in a "paused" (offline) state.
+  const pausedRemainingRef = useRef(null);
 
   useEffect(() => {
     const timer = setTimeout(() => setLoading(false), 300);
     return () => clearTimeout(timer);
   }, []);
 
-  // If the section changes, restore whatever was saved for the new one.
+  // If the subsection changes, restore whatever was saved for the new one.
   useEffect(() => {
-    const saved = loadAutosave(testType, section.id);
+    const saved = loadAutosave(testType, sectionId);
     setAnswers(saved?.answers ?? {});
+    setTimeEndsAt(saved?.timeEndsAt ?? null);
     submittedRef.current = false;
+    pausedRemainingRef.current = null;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testType, section.id]);
+  }, [testType, sectionId]);
 
-  // Persist progress on every change.
+  // section still resolving (section/subsection lookup + API fetch), or
+  // the short fake-loading delay for the skeleton — either way, nothing
+  // below can render real content yet.
+  const isLoading = loading || sectionLoading || !section;
+  const questions = section?.questions || [];
+
+  // Once we know the section's time limit, establish timeEndsAt exactly
+  // ONCE — either from what was restored above, or freshly computed as
+  // Date.now() + limit if this section has never been started before.
   useEffect(() => {
-    saveAutosave(testType, section.id, { answers });
-  }, [testType, section.id, answers]);
+    if (isLoading) return;
+    if (!Number.isFinite(section?.timeLimitSeconds)) return;
+    if (timeEndsAt) return; // already have one (restored or already set)
+    setTimeEndsAt(Date.now() + section.timeLimitSeconds * 1000);
+  }, [isLoading, section?.timeLimitSeconds, timeEndsAt]);
+
+  // Toast whenever connectivity flips — skip the very first check on
+  // mount so we don't fire a spurious "Back online" toast immediately.
+  useEffect(() => {
+    if (isFirstOnlineCheck.current) {
+      isFirstOnlineCheck.current = false;
+      return;
+    }
+
+    const manager = managerFromHook || toastManager;
+    const send = (payload) => {
+      if (!manager) return;
+      if (typeof manager.create === "function") return manager.create(payload);
+      if (typeof manager.add === "function") return manager.add(payload);
+      if (typeof manager.push === "function") return manager.push(payload);
+      return undefined;
+    };
+
+    if (isOnline) {
+      send({ title: "Back online", description: "Your connection has been restored.", type: "success" });
+    } else {
+      send({ title: "No internet connection", description: "Please reconnect to continue your assessment.", type: "error" });
+    }
+  }, [isOnline]);
+
+  // Pause the countdown while offline. `timeEndsAt` is an absolute
+  // timestamp, so simply leaving it untouched wouldn't pause anything —
+  // the clock would keep ticking down against real time. Instead, while
+  // offline we repeatedly nudge `timeEndsAt` forward so the *remaining*
+  // time stays frozen at whatever it was the moment we lost connection.
+  // Once back online, we resume counting down from that frozen remainder.
+  useEffect(() => {
+    if (isLoading || !timeEndsAt) return undefined;
+
+    if (!isOnline) {
+      if (pausedRemainingRef.current == null) {
+        pausedRemainingRef.current = Math.max(0, timeEndsAt - Date.now());
+      }
+      const interval = setInterval(() => {
+        setTimeEndsAt(Date.now() + pausedRemainingRef.current);
+      }, 1000);
+      return () => clearInterval(interval);
+    }
+
+    if (pausedRemainingRef.current != null) {
+      setTimeEndsAt(Date.now() + pausedRemainingRef.current);
+      pausedRemainingRef.current = null;
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline, isLoading]);
+
+  // Persist progress on every change — including timeEndsAt.
+  useEffect(() => {
+    saveAutosave(testType, sectionId, { answers, timeEndsAt });
+  }, [testType, sectionId, answers, timeEndsAt]);
 
   const setAnswer = (qIndex, optionIndex) => {
     setAnswers((prev) => ({ ...prev, [qIndex]: optionIndex }));
@@ -51,9 +142,13 @@ const InterestAssessmentRunner = () => {
   const handleSubmit = (autoSubmitted = false) => {
     if (submittedRef.current && !autoSubmitted) return;
     submittedRef.current = true;
-    clearAutosave(testType, section.id);
-    navigate(`/test/${testType}/${section.id}/summary`, {
-      state: { answers, totalQuestions: questions.length, autoSubmitted },
+    clearAutosave(testType, sectionId);
+    navigate(`/test/${testType}/${sectionId}/summary`, {
+      state: {
+        answers,
+        totalQuestions: section?.totalQuestions ?? questions.length,
+        autoSubmitted,
+      },
     });
   };
 
@@ -69,22 +164,29 @@ const InterestAssessmentRunner = () => {
           maxWidth="max-w-6xl"
           sticky
           center={
-            <span className="text-base sm:text-lg font-medium">{section.title}</span>
+            <span className="text-base sm:text-lg font-medium">{section?.title}</span>
           }
           right={
             <SectionTimer
-              timeLimitSeconds={section.timeLimitSeconds}
-              resetKey={section.id}
-              loading={loading}
+              endsAt={timeEndsAt}
+              loading={isLoading}
               onExpire={handleTimeExpire}
             />
           }
         />
       }
     >
+      {!isOnline && <OfflineBanner />}
+
       <main className="flex-1 px-4 sm:px-6 py-6 sm:py-10 pb-28">
         <div className="max-w-6xl mx-auto">
-          {loading ? (
+          {sectionError && !isLoading && (
+            <p className="text-sm mb-4" style={{ color: "#B91C1C" }}>
+              Couldn't load this section right now. Please refresh the page.
+            </p>
+          )}
+
+          {isLoading ? (
             <div className="flex flex-col gap-2">
               {[1, 2, 3, 4, 5].map((i) => (
                 <Skeleton key={i} className="h-16 w-full rounded-xl" />
@@ -141,7 +243,7 @@ const InterestAssessmentRunner = () => {
         </div>
       </main>
 
-      {!loading && (
+      {!isLoading && (
         <div className="max-w-6xl mx-auto px-4 sm:px-6 mt-2 mb-10 flex items-center justify-between gap-3">
           <span className="text-sm" style={{ color: theme.colors.text.light }}>
             {answeredCount} of {questions.length} answered
