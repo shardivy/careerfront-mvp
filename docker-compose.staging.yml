@@ -1,0 +1,63 @@
+version: "3.9"
+
+services:
+
+  backend:
+    build: ./backend
+    container_name: staging_backend
+    env_file:
+      - ./env/staging.env
+    ports:
+      - "8001:8000"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+    restart: always
+    
+
+  frontend:
+    build: ./frontend
+    container_name: staging_frontend
+    ports:
+      - "3001:3000"
+    restart: always
+
+  db:
+    image: mysql:8.0
+    container_name: staging_mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: careerfrontmvp_staging
+      MYSQL_USER: staging_user
+      MYSQL_PASSWORD: staging_password@
+      MYSQL_ROOT_PASSWORD: staging_root@
+    volumes:
+      - staging_mysql_data:/var/lib/mysql
+    ports:
+      - "3307:3306"
+
+  redis:
+    image: redis:7-alpine
+    container_name: staging_redis
+    restart: always
+    ports:
+      - "6378:6379"
+
+  celery:
+    build: ./backend
+    container_name: staging_celery
+    command: celery -A backend worker --loglevel=info
+    env_file:
+      - ./env/staging.env
+    depends_on:
+      - redis
+      - db
+    restart: always
+    
+
+volumes:
+  staging_mysql_data:
+

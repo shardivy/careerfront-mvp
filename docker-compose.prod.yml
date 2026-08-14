@@ -1,0 +1,58 @@
+version: "3.9"
+
+services:
+
+  backend:
+    build: ./backend
+    container_name: prod_backend
+    env_file:
+      - ./env/prod.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./staticfiles:/app/staticfiles
+      - ./media:/app/media
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: prod_frontend
+    ports:
+      - "3000:3000"
+    restart: always
+
+  db:
+    image: mysql:8.0
+    container_name: prod_mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: careerfrontmvp_prod
+      MYSQL_USER: prod_user
+      MYSQL_PASSWORD: prod_password@
+      MYSQL_ROOT_PASSWORD: prod_root@
+    volumes:
+      - prod_mysql_data:/var/lib/mysql
+    
+
+  redis:
+    image: redis:7-alpine
+    container_name: prod_redis
+    restart: always
+  
+
+  celery:
+    build: ./backend
+    container_name: prod_celery
+    command: celery -A backend worker --loglevel=info
+    env_file:
+      - ./env/prod.env
+    depends_on:
+      - redis
+      - db
+    restart: always
+
+volumes:
+  prod_mysql_data:
