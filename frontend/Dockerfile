@@ -31,13 +31,17 @@ RUN npm install -g serve
 # Copy built app from builder
 COPY --from=builder /app/dist ./dist
 
-# Expose port
-EXPOSE 3000
+# Create non-root user
+RUN groupadd --system appuser && \
+    useradd --system --gid appuser appuser
 
-# Create non-root user (safe for Alpine)
-RUN addgroup -S appuser && adduser -S appuser -G appuser
+# Give ownership to non-root user
+RUN chown -R appuser:appuser /app
 
 USER appuser
+
+# Expose port
+EXPOSE 3000
 
 # Start server
 CMD ["serve", "-s", "dist", "-l", "3000"]
