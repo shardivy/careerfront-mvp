@@ -83,14 +83,14 @@ const useAllSubsections = () => {
  * enough for listing tabs and showing a question count. For a single
  * subsection with REAL questions, use `useTestSubsection` below.
  */
-export const useTestSubsections = (testType) => {
+export const UseTestSubsections = (testType) => {
   const { bySection, loading, error } = useAllSubsections();
 
   const tabs = useMemo(() => {
     const list = bySection[testType] || [];
 
     if (!Array.isArray(list)) {
-      console.warn(`useTestSubsections: bySection[${testType}] is not an array:`, list);
+      console.warn(`UseTestSubsections: bySection[${testType}] is not an array:`, list);
       return [];
     }
 
@@ -156,9 +156,9 @@ export const useTestSubsections = (testType) => {
  * QUESTION_BANKS has locally, so runners that expect a `questions` array
  * never see undefined.
  */
-export const useTestSubsection = (testType, subsectionCode) => {
+export const UseTestSubsection = (testType, subsectionCode) => {
   const dispatch = useDispatch();
-  const { tabs, sectionId, loading: subsectionsLoading, error: subsectionsError } = useTestSubsections(testType);
+  const { tabs, sectionId, loading: subsectionsLoading, error: subsectionsError } = UseTestSubsections(testType);
   const localSection = tabs.find((t) => t.id === subsectionCode) || null;
 
   const {
@@ -210,7 +210,7 @@ export const useTestSubsection = (testType, subsectionCode) => {
  * SECTION_ORDER) with at least one subsection present in the response
  * becomes a card, in SECTION_ORDER's order.
  */
-export const useTestSections = () => {
+export const UseTestSections = () => {
   const { loading, error } = useAllSubsections();
 
   const sections = useMemo(

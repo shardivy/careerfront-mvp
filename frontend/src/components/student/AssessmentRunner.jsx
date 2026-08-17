@@ -2,7 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Flag, ChevronLeft, ChevronRight } from "lucide-react";
 import theme from "../../theme/theme";
-import { useTestSubsections } from "../hooks/UseTestSubsections";
+import { UseTestSubsections } from "../hooks/UseTestSubsections";
 import { isTestComplete, isSectionComplete } from "./Testprogress";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import { useStudentQuestions } from "../hooks/useStudentQuestions";
@@ -29,7 +29,7 @@ const AssessmentRunner = () => {
   const isFirstOnlineCheck = useRef(true);
   const managerFromHook = useToastManager && useToastManager();
 
-  const { tabs, loading: subsectionsLoading, error: subsectionsError } = useTestSubsections(testType);
+  const { tabs, loading: subsectionsLoading, error: subsectionsError } = UseTestSubsections(testType);
 
   const sectionOrder = tabs.map((t) => t.id);
   const activeSectionId = sectionId || sectionOrder[0];

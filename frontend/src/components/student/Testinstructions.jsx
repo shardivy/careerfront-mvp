@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { BookOpen, AlertTriangle, ChevronRight, Check } from "lucide-react";
 import theme from "../../theme/theme";
 import { getSectionName } from "./Testdata";
-import { useTestSubsections } from "../hooks/UseTestSubsections";
+import { UseTestSubsections } from "../hooks/UseTestSubsections";
 import { isSectionComplete, isTestComplete } from "./Testprogress";
 import Skeleton from "../ui/skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
@@ -19,7 +19,7 @@ const TestInstructions = () => {
   const { testType } = useParams();
   const sectionName = getSectionName(testType);
 
-  const { tabs, loading: subsectionsLoading, error: subsectionsError } = useTestSubsections(testType);
+  const { tabs, loading: subsectionsLoading, error: subsectionsError } = UseTestSubsections(testType);
 
   const [loading, setLoading] = useState(true);
   const [activeId, setActiveId] = useState(null);
