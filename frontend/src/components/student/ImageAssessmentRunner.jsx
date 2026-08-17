@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Flag, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import theme from "../../theme/theme";
-import { useTestSubsection } from "../hooks/UseTestSubsections";
+import { UseTestSubsection } from "../hooks/UseTestSubsections";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import Skeleton from "../ui/skeleton";
 import OfflineBanner from "../ui/OfflineBanner";
@@ -20,7 +20,7 @@ const ImageAssessmentRunner = () => {
   const isFirstOnlineCheck = useRef(true);
   const managerFromHook = useToastManager && useToastManager();
 
-  const { section, loading: sectionLoading, error: sectionError } = useTestSubsection(testType, sectionId);
+  const { section, loading: sectionLoading, error: sectionError } = UseTestSubsection(testType, sectionId);
   const { questions: apiQuestions, loading: apiQuestionsLoading } = useStudentQuestions(section?.dbId);
   const questions = apiQuestions.length > 0 ? apiQuestions : (section?.questions || []);
   const totalPages = Math.max(1, Math.ceil(questions.length / QUESTIONS_PER_PAGE));

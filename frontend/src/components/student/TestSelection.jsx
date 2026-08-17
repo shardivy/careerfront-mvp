@@ -4,7 +4,7 @@ import { ArrowRight, Check, FileText } from "lucide-react";
 import theme from "../../theme/theme";
 import { SECTION_META, DEFAULT_SECTION_ICON, SUBSECTION_TO_SECTION } from "./Testdata";
 import { isTestComplete } from "./Testprogress";
-import { useTestSections } from "../hooks/UseTestSubsections";
+import { UseTestSections } from "../hooks/UseTestSubsections";
 import Skeleton from "../ui/skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
 
@@ -38,7 +38,7 @@ const TestSelection = ({ userName = "" }) => {
     sections,
     loading: sectionsLoading,
     error: sectionsError,
-  } = useTestSections();
+  } = UseTestSections();
 
   const [loading, setLoading] = useState(true);
   const [progressVersion, setProgressVersion] = useState(0);

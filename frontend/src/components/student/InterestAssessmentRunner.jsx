@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { ChevronRight, Check } from "lucide-react";
 import theme from "../../theme/theme";
-import { useTestSubsection } from "../hooks/UseTestSubsections";
+import { UseTestSubsection } from "../hooks/UseTestSubsections";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import Skeleton from "../ui/skeleton";
 import OfflineBanner from "../ui/OfflineBanner";
@@ -27,7 +27,7 @@ const InterestAssessmentRunner = () => {
   const isFirstOnlineCheck = useRef(true);
   const managerFromHook = useToastManager && useToastManager();
 
-  const { section, loading: sectionLoading, error: sectionError } = useTestSubsection(testType, sectionId);
+  const { section, loading: sectionLoading, error: sectionError } = UseTestSubsection(testType, sectionId);
 
   // Restore any autosaved progress for this subsection. Keyed off the
   // route param directly so this works before `section` has loaded.

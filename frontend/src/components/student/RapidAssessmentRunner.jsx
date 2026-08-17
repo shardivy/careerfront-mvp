@@ -10,7 +10,7 @@ import {
   Check,
 } from "lucide-react";
 import theme from "../../theme/theme";
-import { useTestSubsection } from "../hooks/UseTestSubsections";
+import { UseTestSubsection } from "../hooks/UseTestSubsections";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
 import Skeleton from "../ui/skeleton";
 import OfflineBanner from "../ui/OfflineBanner";
@@ -36,7 +36,7 @@ const RapidAssessmentRunner = () => {
   const isFirstOnlineCheck = useRef(true);
   const managerFromHook = useToastManager && useToastManager();
 
-  const { section, loading: sectionLoading, error: sectionError } = useTestSubsection(testType, sectionId);
+  const { section, loading: sectionLoading, error: sectionError } = UseTestSubsection(testType, sectionId);
   const { questions: apiQuestions, loading: apiQuestionsLoading } = useStudentQuestions(section?.dbId);
   const { groups: apiGroups } = useMemo(
     () => transformRapidAssessmentQuestions(apiQuestions),

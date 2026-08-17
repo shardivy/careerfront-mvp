@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { Loader2, Check, BarChart3, ChevronRight, Minus } from "lucide-react";
 import theme from "../../theme/theme";
-import { useTestSubsections } from "../hooks/UseTestSubsections";
+import { UseTestSubsections } from "../hooks/UseTestSubsections";
 import { markSectionComplete, areAllTestsComplete, getIncompleteTestTypes, getCompletedSections } from "./Testprogress";
 import Skeleton from "../ui/skeleton";
 import StudentLayout, { TopBar } from "../layouts/StudentLayout";
@@ -31,7 +31,7 @@ const SectionSummary = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { tabs, loading: subsectionsLoading, error: subsectionsError } = useTestSubsections(testType);
+  const { tabs, loading: subsectionsLoading, error: subsectionsError } = UseTestSubsections(testType);
   const sectionOrder = tabs.map((t) => t.id);
   const activeSectionId = sectionId || sectionOrder[0];
   const section = tabs.find((t) => t.id === activeSectionId) || null;
