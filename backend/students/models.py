@@ -1,5 +1,6 @@
 from django.db import models
 
+from assessment.models import AssessmentStructure
 from question.models import Question
 
 class Student(models.Model):
@@ -89,6 +90,11 @@ class Student(models.Model):
         return f"{self.student_code} - {self.first_name}"
     
 class StudentTestResponse(models.Model):
+    
+    SUBSECTION_STATUS_CHOICES = (
+        ("IN_PROGRESS", "In Progress"),
+        ("SUBMITTED", "Submitted"),
+    )
 
     id = models.BigAutoField(
         primary_key=True
@@ -114,8 +120,12 @@ class StudentTestResponse(models.Model):
         related_name="student_responses"
     )
 
-    subsection_id = models.BigIntegerField(
-        db_index=True
+    subsection = models.ForeignKey(
+        AssessmentStructure,
+        to_field="subsection_id",
+        db_column="subsection_id",
+        on_delete=models.PROTECT,
+        related_name="student_test_responses"
     )
 
     selected_response_json = models.JSONField(
@@ -152,6 +162,13 @@ class StudentTestResponse(models.Model):
     subsection_time_taken_seconds = models.IntegerField(
         blank=True,
         null=True
+    )
+    
+    subsection_status = models.CharField(
+        max_length=20,
+        choices=SUBSECTION_STATUS_CHOICES,
+        default="IN_PROGRESS",
+        db_index=True
     )
 
     last_activity_at = models.DateTimeField(

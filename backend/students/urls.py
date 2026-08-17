@@ -1,6 +1,6 @@
 from django.urls import path
 
-from students.views import BulkStudentTestResponseAPIView, StudentSyncAPIView
+from students.views import StudentSyncAPIView, StudentTestResponseAPIView
 
 
 urlpatterns = [
@@ -10,8 +10,8 @@ urlpatterns = [
         name="student-sync"
     ),
     path(
-        "student-test-responses/bulk/",
-        BulkStudentTestResponseAPIView.as_view(),
+        "student-test-responses/",
+        StudentTestResponseAPIView.as_view(),
         name="student-test-responses-bulk"
     ),
 ]
