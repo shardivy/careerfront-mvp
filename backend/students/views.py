@@ -1,12 +1,17 @@
+import uuid
+
 from django.shortcuts import render
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
 
+from assessment.models import AssessmentStructure
+from question.models import Question
 from students.models import Student, StudentTestResponse
-from students.serializers import BulkStudentTestResponseSerializer, StudentSyncSerializer
+from students.serializers import StudentSyncSerializer
 
 class StudentSyncAPIView(APIView):
 
@@ -105,192 +110,544 @@ class StudentSyncAPIView(APIView):
 
         return f"TMP{next_number:06d}"
     
-class BulkStudentTestResponseAPIView(APIView):
+class StudentTestResponseAPIView(APIView):
+    """
+    Save/update multiple student answers.
+
+    Supports:
+    - Multiple subsections in one request
+    - Multiple questions per subsection
+    - Partial answer saving
+    - Automatic subsection submission
+    - Automatic assessment_id from AssessmentStructure
+    - Attempt-based answer tracking
+    """
 
     @transaction.atomic
     def post(self, request):
 
-        serializer = BulkStudentTestResponseSerializer(
-            data=request.data
-        )
+        # =====================================================
+        # 1. GET REQUEST DATA
+        # =====================================================
 
-        if not serializer.is_valid():
+        attempt_id = request.data.get("attempt_id")
+        student_id = request.data.get("student_id")
+        subsections = request.data.get("subsections")
 
+        # =====================================================
+        # 2. VALIDATION
+        # =====================================================
+
+        if not attempt_id:
             return Response(
                 {
                     "success": False,
-                    "errors": serializer.errors
+                    "message": "attempt_id is required."
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        data = serializer.validated_data
-
-        attempt_id = data["attempt_id"]
-        student = data["student"]
-        assessment_id = data["assessment_id"]
-        subsection_id = data["subsection_id"]
-        answers = data["answers"]
-        question_map = data["question_map"]
-
-        created_count = 0
-        updated_count = 0
-
-        response_data = []
-
-        # -----------------------------------------
-        # Process every answer
-        # -----------------------------------------
-
-        for answer in answers:
-
-            question_id = answer["question_id"]
-
-            question = question_map[question_id]
-
-            selected_response = answer.get(
-                "selected_response_json"
+        if not student_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "student_id is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-            is_answered = answer.get(
-                "is_answered",
-                False
+        if not subsections:
+            return Response(
+                {
+                    "success": False,
+                    "message": "subsections is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-            # -----------------------------------------
-            # Find existing response
-            # -----------------------------------------
+        if not isinstance(subsections, list):
+            return Response(
+                {
+                    "success": False,
+                    "message": "subsections must be a list."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            response_obj = StudentTestResponse.objects.filter(
-                attempt_id=attempt_id,
-                question_id=question_id
-            ).first()
+        # =====================================================
+        # 3. VALIDATE ATTEMPT ID
+        # =====================================================
 
-            # -----------------------------------------
-            # CREATE
-            # -----------------------------------------
+        try:
+            attempt_uuid = uuid.UUID(str(attempt_id))
 
-            if not response_obj:
+        except (ValueError, AttributeError):
 
-                response_obj = StudentTestResponse(
-                    attempt_id=attempt_id,
-                    student=student,
-                    assessment_id=assessment_id,
-                    question=question,
-                    subsection_id=subsection_id
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid attempt_id."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # =====================================================
+        # 4. GET STUDENT
+        # =====================================================
+
+        student = get_object_or_404(
+            Student,
+            id=student_id
+        )
+
+        # =====================================================
+        # RESULT
+        # =====================================================
+
+        subsection_results = []
+
+        # =====================================================
+        # 5. PROCESS EACH SUBSECTION
+        # =====================================================
+
+        for subsection_data in subsections:
+
+            subsection_id = subsection_data.get(
+                "subsection_id"
+            )
+
+            answers = subsection_data.get(
+                "answers",
+                []
+            )
+
+            # -------------------------------------------------
+            # Validate subsection
+            # -------------------------------------------------
+
+            if not subsection_id:
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": "subsection_id is required."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
                 )
 
-                created_count += 1
+            if not isinstance(answers, list):
 
-            # -----------------------------------------
-            # UPDATE
-            # -----------------------------------------
+                return Response(
+                    {
+                        "success": False,
+                        "message": (
+                            f"answers must be a list "
+                            f"for subsection {subsection_id}."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-            else:
+            # =================================================
+            # 6. GET SUBSECTION
+            # =================================================
 
-                # Same attempt cannot belong
-                # to another student
+            subsection = get_object_or_404(
+                AssessmentStructure,
+                subsection_id=subsection_id,
+                status="ACTIVE"
+            )
 
-                if response_obj.student_id != student.id:
+            # =================================================
+            # 7. GET ASSESSMENT ID AUTOMATICALLY
+            # =================================================
+
+            assessment_id = subsection.assessment_id
+
+            # =================================================
+            # 8. GET ALL QUESTIONS OF THIS SUBSECTION
+            #
+            # Question.subsection_id is BigIntegerField.
+            # No ForeignKey is required.
+            # =================================================
+
+            subsection_questions = Question.objects.filter(
+                subsection_id=subsection_id,
+                status="ACTIVE"
+            )
+
+            total_questions = subsection_questions.count()
+
+            # =================================================
+            # 9. PROCESS ANSWERS
+            # =================================================
+
+            for answer in answers:
+
+                question_id = answer.get(
+                    "question_id"
+                )
+
+                selected_response_json = answer.get(
+                    "selected_response_json"
+                )
+
+                is_answered = answer.get(
+                    "is_answered",
+                    False
+                )
+
+                # ---------------------------------------------
+                # Validate question_id
+                # ---------------------------------------------
+
+                if not question_id:
 
                     return Response(
                         {
                             "success": False,
                             "message": (
-                                "Attempt does not belong "
-                                "to this student."
+                                f"question_id is required "
+                                f"for subsection "
+                                f"{subsection_id}."
                             )
                         },
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
-                updated_count += 1
+                # ---------------------------------------------
+                # Get question
+                # ---------------------------------------------
 
-            # -----------------------------------------
-            # Save answer
-            # -----------------------------------------
+                question = get_object_or_404(
+                    Question,
+                    id=question_id
+                )
 
-            response_obj.selected_response_json = (
-                selected_response
+                # ---------------------------------------------
+                # Validate question belongs to subsection
+                # ---------------------------------------------
+
+                if question.subsection_id != subsection_id:
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Question {question_id} "
+                                f"does not belong to subsection "
+                                f"{subsection_id}."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # =================================================
+                # 10. CHECK EXISTING RESPONSE
+                # =================================================
+
+                existing_response = (
+                    StudentTestResponse.objects.filter(
+                        attempt_id=attempt_uuid,
+                        question=question
+                    ).first()
+                )
+
+                # =================================================
+                # 11. PREVENT UPDATE AFTER SUBMISSION
+                # =================================================
+
+                if (
+                    existing_response
+                    and existing_response.subsection_status
+                    == "SUBMITTED"
+                ):
+
+                    return Response(
+                        {
+                            "success": False,
+                            "message": (
+                                f"Subsection {subsection_id} "
+                                f"is already submitted."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # =================================================
+                # 12. SAVE / UPDATE ANSWER
+                # =================================================
+
+                response_obj, created = (
+                    StudentTestResponse.objects.update_or_create(
+
+                        attempt_id=attempt_uuid,
+
+                        question=question,
+
+                        defaults={
+
+                            "student": student,
+
+                            "assessment_id":
+                                assessment_id,
+
+                            "subsection":
+                                subsection,
+
+                            "selected_response_json":
+                                selected_response_json,
+
+                            "is_answered":
+                                is_answered,
+
+                            "last_activity_at":
+                                timezone.now(),
+
+                            "answered_at":
+                                (
+                                    timezone.now()
+                                    if is_answered
+                                    else None
+                                ),
+
+                            "subsection_status":
+                                "IN_PROGRESS",
+
+                            "test_status":
+                                "IN_PROGRESS",
+                        }
+                    )
+                )
+
+            # =================================================
+            # 13. COUNT ANSWERED QUESTIONS
+            # =================================================
+
+            answered_questions = (
+                StudentTestResponse.objects.filter(
+                    attempt_id=attempt_uuid,
+                    student=student,
+                    subsection=subsection,
+                    is_answered=True
+                )
+                .values("question_id")
+                .distinct()
+                .count()
             )
 
-            response_obj.is_answered = is_answered
+            # =================================================
+            # 14. CALCULATE REMAINING QUESTIONS
+            # =================================================
 
-            response_obj.last_activity_at = timezone.now()
+            remaining_questions = max(
+                total_questions - answered_questions,
+                0
+            )
 
-            # -----------------------------------------
-            # Calculate correctness
-            # -----------------------------------------
+            # =================================================
+            # 15. CHECK SUBSECTION STATUS
+            # =================================================
 
-            if not is_answered:
+            if (
+                total_questions > 0
+                and answered_questions >= total_questions
+            ):
 
-                response_obj.is_correct = None
-                response_obj.marks_awarded = None
+                subsection_status = "SUBMITTED"
+
+                completed_at = timezone.now()
+
+                # ---------------------------------------------
+                # Get first response
+                # ---------------------------------------------
+
+                first_response = (
+                    StudentTestResponse.objects.filter(
+                        attempt_id=attempt_uuid,
+                        student=student,
+                        subsection=subsection
+                    )
+                    .order_by("created_at")
+                    .first()
+                )
+
+                started_at = None
+
+                if first_response:
+
+                    started_at = (
+                        first_response.subsection_started_at
+                    )
+
+                    if not started_at:
+                        started_at = first_response.created_at
+
+                # ---------------------------------------------
+                # Calculate time taken
+                # ---------------------------------------------
+
+                time_taken_seconds = None
+
+                if started_at:
+
+                    time_taken_seconds = int(
+                        (
+                            completed_at -
+                            started_at
+                        ).total_seconds()
+                    )
+
+                # ---------------------------------------------
+                # Mark ALL responses of subsection submitted
+                # ---------------------------------------------
+
+                StudentTestResponse.objects.filter(
+                    attempt_id=attempt_uuid,
+                    student=student,
+                    subsection=subsection
+                ).update(
+
+                    subsection_status="SUBMITTED",
+
+                    subsection_started_at=started_at,
+
+                    subsection_completed_at=completed_at,
+
+                    subsection_time_taken_seconds=
+                        time_taken_seconds,
+
+                    submitted_at=completed_at
+                )
 
             else:
 
-                correct_answer = (
-                    question.correct_answer_json or {}
-                )
+                subsection_status = "IN_PROGRESS"
 
-                selected_answer = (
-                    selected_response or {}
-                )
+            # =================================================
+            # 16. ADD SUBSECTION SUMMARY ONLY
+            # =================================================
 
-                selected_option = (
-                    selected_answer.get("option_id")
-                )
-
-                correct_option = (
-                    correct_answer.get("option_id")
-                )
-
-                if selected_option == correct_option:
-
-                    response_obj.is_correct = True
-
-                    response_obj.marks_awarded = (
-                        question.marks or 0
-                    )
-
-                else:
-
-                    response_obj.is_correct = False
-
-                    response_obj.marks_awarded = -(
-                        question.negative_marks or 0
-                    )
-
-                response_obj.answered_at = timezone.now()
-
-            response_obj.save()
-
-            response_data.append(
+            subsection_results.append(
                 {
-                    "id": response_obj.id,
-                    "question_id": question_id,
-                    "is_answered": response_obj.is_answered,
-                    "is_correct": response_obj.is_correct,
-                    "marks_awarded": response_obj.marks_awarded,
+                    "subsection_id":
+                        subsection.subsection_id,
+
+                    "total_questions":
+                        total_questions,
+
+                    "answered_questions":
+                        answered_questions,
+
+                    "remaining_questions":
+                        remaining_questions,
+
+                    "subsection_status":
+                        subsection_status,
                 }
             )
 
-        # -----------------------------------------
-        # Response
-        # -----------------------------------------
+        # =====================================================
+        # 17. CHECK WHOLE ASSESSMENT STATUS
+        # =====================================================
+
+        # Get assessment IDs from requested subsections
+        assessment_ids = list(
+            set(
+                AssessmentStructure.objects.filter(
+                    subsection_id__in=[
+                        item["subsection_id"]
+                        for item in subsection_results
+                    ]
+                ).values_list(
+                    "assessment_id",
+                    flat=True
+                )
+            )
+        )
+
+        test_status = "IN_PROGRESS"
+
+        if assessment_ids:
+
+            assessment_id = assessment_ids[0]
+
+            # ---------------------------------------------
+            # All active subsections for assessment
+            # ---------------------------------------------
+
+            total_assessment_subsections = (
+                AssessmentStructure.objects.filter(
+                    assessment_id=assessment_id,
+                    status="ACTIVE"
+                )
+                .values("subsection_id")
+                .distinct()
+                .count()
+            )
+
+            # ---------------------------------------------
+            # Submitted subsections
+            # ---------------------------------------------
+
+            submitted_subsections = (
+                StudentTestResponse.objects.filter(
+                    attempt_id=attempt_uuid,
+                    student=student,
+                    subsection_status="SUBMITTED"
+                )
+                .values("subsection_id")
+                .distinct()
+                .count()
+            )
+
+            # ---------------------------------------------
+            # Complete entire test
+            # ---------------------------------------------
+
+            if (
+                total_assessment_subsections > 0
+                and submitted_subsections
+                >= total_assessment_subsections
+            ):
+
+                test_status = "COMPLETED"
+
+                StudentTestResponse.objects.filter(
+                    attempt_id=attempt_uuid,
+                    student=student
+                ).update(
+                    test_status="COMPLETED"
+                )
+
+        # =====================================================
+        # 18. FINAL RESPONSE
+        # =====================================================
 
         return Response(
             {
                 "success": True,
-                "message": "Student responses saved successfully.",
-                "attempt_id": str(attempt_id),
-                "student_id": student.id,
-                "assessment_id": assessment_id,
-                "subsection_id": subsection_id,
-                "created_count": created_count,
-                "updated_count": updated_count,
-                "total_answers": len(answers),
-                "responses": response_data,
+
+                "message":
+                    "Student responses saved successfully.",
+
+                "attempt_id":
+                    str(attempt_uuid),
+
+                "student_id":
+                    student.id,
+
+                "test_status":
+                    test_status,
+
+                "subsections":
+                    subsection_results
             },
             status=status.HTTP_200_OK
-        )
+        )      
+        
+        
+        
+        
+        
+        
