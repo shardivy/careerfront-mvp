@@ -585,6 +585,220 @@ class BulkQuestionCreateAPIView(APIView):
             },
             status=status.HTTP_201_CREATED
         )
+     
+    @transaction.atomic
+    def put(self, request, question_id):
+
+        # =====================================================
+        # 1. GET QUESTION
+        # =====================================================
+
+        try:
+            question = Question.objects.get(
+                id=question_id
+            )
+        except Question.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Question not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # =====================================================
+        # 2. GET SUBSECTION ID
+        # =====================================================
+
+        subsection_id = request.data.get("subsection_id")
+
+        if not subsection_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "subsection_id is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            subsection_id = int(subsection_id)
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "success": False,
+                    "message": "subsection_id must be an integer."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # =====================================================
+        # 3. CHECK SUBSECTION
+        # =====================================================
+
+        subsection = (
+            AssessmentStructure.objects
+            .filter(
+                subsection_id=subsection_id,
+                status="ACTIVE"
+            )
+            .first()
+        )
+
+        if not subsection:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Subsection not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # =====================================================
+        # 4. UPDATE QUESTION TYPE
+        # =====================================================
+
+        if "question_type" in request.data:
+            question.question_type = request.data.get(
+                "question_type"
+            )
+
+        # =====================================================
+        # 5. UPDATE QUESTION TEXT
+        # =====================================================
+
+        if "question_text" in request.data:
+            question.question_text = request.data.get(
+                "question_text"
+            )
+
+        # =====================================================
+        # 6. UPDATE QUESTION IMAGE
+        # =====================================================
+
+        if "question_image" in request.FILES:
+            question.question_image = request.FILES.get(
+                "question_image"
+            )
+
+        # =====================================================
+        # 7. UPDATE OPTIONS
+        # =====================================================
+
+        if "options_json" in request.data:
+
+            options_json = request.data.get(
+                "options_json"
+            )
+
+            if isinstance(options_json, str):
+                try:
+                    options_json = json.loads(
+                        options_json
+                    )
+                except json.JSONDecodeError:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid options_json."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            question.options_json = options_json
+
+        # =====================================================
+        # 8. UPDATE CORRECT ANSWER
+        # =====================================================
+
+        if "correct_answer_json" in request.data:
+
+            correct_answer_json = request.data.get(
+                "correct_answer_json"
+            )
+
+            if isinstance(correct_answer_json, str):
+                try:
+                    correct_answer_json = json.loads(
+                        correct_answer_json
+                    )
+                except json.JSONDecodeError:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "Invalid correct_answer_json."
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            question.correct_answer_json = correct_answer_json
+
+        # =====================================================
+        # 9. UPDATE MARKS
+        # =====================================================
+
+        if "marks" in request.data:
+            question.marks = request.data.get(
+                "marks"
+            )
+
+        # =====================================================
+        # 10. UPDATE NEGATIVE MARKS
+        # =====================================================
+
+        if "negative_marks" in request.data:
+            question.negative_marks = request.data.get(
+                "negative_marks"
+            )
+
+        # =====================================================
+        # 11. UPDATE EXPLANATION
+        # =====================================================
+
+        if "explanation" in request.data:
+            question.explanation = request.data.get(
+                "explanation"
+            )
+
+        # =====================================================
+        # 12. UPDATE STATUS
+        # =====================================================
+
+        if "status" in request.data:
+            question.status = request.data.get(
+                "status"
+            )
+
+        # =====================================================
+        # 13. UPDATE OPTION IMAGE
+        # =====================================================
+
+        if "option_image" in request.FILES:
+            question.option_image = request.FILES.get(
+                "option_image"
+            )
+
+        # =====================================================
+        # 14. SAVE
+        # =====================================================
+
+        question.save()
+
+        # =====================================================
+        # 15. RESPONSE
+        # =====================================================
+
+        serializer = QuestionSerializer(question)
+
+        return Response(
+            {
+                "success": True,
+                "message": "Question updated successfully.",
+                "question_id": question.id,
+                "data": serializer.data
+            },
+            status=status.HTTP_200_OK
+        ) 
         
 class SubsectionQuestionsAPIView(APIView):
 
