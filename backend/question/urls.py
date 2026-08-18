@@ -24,6 +24,11 @@ urlpatterns = [
         name="bulk-question-create"
     ),
     path(
+        "questions/update/<int:question_id>/",
+        BulkQuestionCreateAPIView.as_view(),
+        name="question-update",
+    ),
+    path(
         "subsections/<int:subsection_id>/questions/",
         SubsectionQuestionsAPIView.as_view(),
         name="subsection-questions"
