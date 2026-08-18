@@ -19,7 +19,15 @@ import { toast as toastManager, useToastManager } from "@/components/ui/toast";
 import StudentLayout, { TopBar, SectionTimer } from "../layouts/StudentLayout";
 import { useStudentQuestions } from "../hooks/useStudentQuestions";
 import { transformRapidAssessmentQuestions } from "../../utils/rapidAssessmentTransformer";
+import { saveStudentResponsesApi } from "../../api/student-api/studentResponseApi";
 
+import {
+  getAttemptId,
+  getStudentId,
+  getSubsectionResponses,
+  saveQuestionResponse,
+  clearSubsectionResponses,
+} from "../../utils/studentResponseStorage";
 
 const GROUP_META = {
   "compare-larger": { accent: "#808080", soft: "#FFFBEB", icon: TrendingUp },
@@ -55,6 +63,8 @@ const RapidAssessmentRunner = () => {
     () => loadAutosave(testType, sectionId)?.timeEndsAt ?? null
   );
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const submittedRef = useRef(false);
 
   // How many ms were left on the clock at the moment we went offline.
@@ -74,6 +84,7 @@ const RapidAssessmentRunner = () => {
     setTimeEndsAt(saved?.timeEndsAt ?? null);
     submittedRef.current = false;
     pausedRemainingRef.current = null;
+    setSubmitError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testType, sectionId]);
 
@@ -149,34 +160,79 @@ const RapidAssessmentRunner = () => {
     });
   }, [testType, sectionId, answers, selectedMonths, timeEndsAt]);
 
-  const setAnswer = (itemId, value) => {
-    setAnswers((prev) => ({ ...prev, [itemId]: value }));
+  // =====================================================
+  // SAVE ONE ANSWER — both to UI state and to the per-question
+  // localStorage bucket the submit API reads from.
+  //
+  // ASSUMPTION: selected_response_json.option_id is sent as a STRING
+  // version of whatever value was picked (a number, "Similar"/"Different",
+  // "Odd"/"Even") — NOT an A/B/C/D letter, since these aren't multiple
+  // choice questions. Adjust `toResponseValue` below if the backend
+  // expects a different shape for this question type.
+  // =====================================================
+  const toResponseValue = (value) => {
+    if (value === null || value === undefined) return null;
+    return String(value);
   };
 
+  const setAnswer = (itemId, value) => {
+    setAnswers((prev) => ({ ...prev, [itemId]: value }));
+
+    const attemptId = getAttemptId();
+    if (!attemptId) {
+      console.warn("attempt_id not found — skipping save for this answer");
+      return;
+    }
+
+    if (section?.dbId === undefined || section?.dbId === null) {
+      console.warn("section.dbId not yet resolved — skipping save this tick");
+      return;
+    }
+
+    saveQuestionResponse({
+      attemptId,
+      subsectionId: section.dbId,
+      questionId: itemId,
+      selectedResponse: toResponseValue(value),
+    });
+  };
+
+  // =====================================================
+  // MONTH MULTI-SELECT
+  //
+  // ASSUMPTION: each month is saved as its OWN question_id
+  // (`${itemId}` = the month name itself, e.g. "January"), with
+  // selected_response = "true"/"false". This lets month selections ride
+  // in the same per-question response array as everything else. If the
+  // backend instead wants ONE question_id with an array/CSV of selected
+  // months, replace this with a single saveQuestionResponse call using
+  // Array.from(next).join(",") or JSON.stringify(Array.from(next)).
+  // =====================================================
   const toggleMonth = (month) => {
     setSelectedMonths((prev) => {
       const next = new Set(prev);
-      next.has(month) ? next.delete(month) : next.add(month);
+      const willBeSelected = !next.has(month);
+
+      if (willBeSelected) {
+        next.add(month);
+      } else {
+        next.delete(month);
+      }
+
+      const attemptId = getAttemptId();
+      if (attemptId && section?.dbId !== undefined && section?.dbId !== null) {
+        saveQuestionResponse({
+          attemptId,
+          subsectionId: section.dbId,
+          questionId: month, // month name used as the question identifier
+          selectedResponse: String(willBeSelected),
+        });
+      } else {
+        console.warn("attempt_id or section.dbId missing — skipping month save");
+      }
+
       return next;
     });
-  };
-
-  const handleSubmit = (autoSubmitted = false) => {
-    if (submittedRef.current && !autoSubmitted) return;
-    submittedRef.current = true;
-    clearAutosave(testType, sectionId);
-    navigate(`/test/${testType}/${sectionId}/summary`, {
-      state: {
-        answers: { ...answers, "days-30-31": Array.from(selectedMonths) },
-        totalQuestions: section?.totalQuestions,
-        autoSubmitted,
-      },
-    });
-  };
-
-  // Fired once by SectionTimer when the countdown hits zero.
-  const handleTimeExpire = () => {
-    handleSubmit(true);
   };
 
   const groupProgress = (group) => {
@@ -196,6 +252,115 @@ const RapidAssessmentRunner = () => {
   };
 
   const groups = apiGroups.length > 0 ? apiGroups : (section?.groups || []);
+
+  const handleSubmit = async (autoSubmitted = false) => {
+    if (submittedRef.current || isSubmitting) {
+      return;
+    }
+
+    // =================================================
+    // REQUIRE ALL QUESTIONS ANSWERED
+    //
+    // Skipped when the timer forces an auto-submit — a student who ran
+    // out of time should still have whatever they answered sent, not
+    // get stuck unable to submit at all. Reuses groupProgress so this
+    // stays in sync with the progress chips in the top bar, including
+    // the month-multiselect group's "at least one month" rule.
+    // =================================================
+    if (!autoSubmitted) {
+      const firstIncompleteGroup = groups.find((group) => {
+        const { answered, total } = groupProgress(group);
+        return answered < total;
+      });
+
+      if (firstIncompleteGroup) {
+        setSubmitError(
+          `Please answer all questions before submitting. "${firstIncompleteGroup.heading}" is incomplete.`
+        );
+        scrollToGroup(firstIncompleteGroup.id);
+        return;
+      }
+    }
+
+    const attemptId = getAttemptId();
+    const studentId = getStudentId();
+    const subsectionId = section?.dbId;
+
+    if (!attemptId) {
+      setSubmitError("Attempt ID not found.");
+      console.error("Attempt ID not found.");
+      return;
+    }
+
+    if (!studentId) {
+      setSubmitError("Student ID not found.");
+      console.error("Student ID not found.");
+      return;
+    }
+
+    if (!subsectionId) {
+      setSubmitError("Subsection ID not found.");
+      console.error("Subsection ID not found.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setSubmitError(null);
+
+      const localResponses = getSubsectionResponses(attemptId, subsectionId);
+
+      console.log("=================================");
+      console.log("RAPID ASSESSMENT SUBMIT");
+      console.log("=================================");
+      console.log("Attempt ID:", attemptId);
+      console.log("Student ID:", studentId);
+      console.log("Subsection ID:", subsectionId);
+      console.log("Responses:", localResponses);
+
+      const result = await saveStudentResponsesApi({
+        attemptId,
+        studentId,
+        subsectionId,
+        responses: localResponses,
+      });
+
+      console.log("Rapid assessment API success:", result);
+
+      // Only clear local data after API success — so a failed submit
+      // still leaves responses available for retry.
+      clearSubsectionResponses(attemptId, subsectionId);
+      clearAutosave(testType, sectionId);
+
+      submittedRef.current = true;
+
+      navigate(`/test/${testType}/${sectionId}/summary`, {
+        state: {
+          answers: { ...answers, "days-30-31": Array.from(selectedMonths) },
+          totalQuestions: section?.totalQuestions,
+          autoSubmitted,
+          submittedResponse: result,
+        },
+      });
+    } catch (error) {
+      console.error("Rapid assessment submit error:", error);
+
+      const message =
+        error?.response?.data?.message ??
+        error?.response?.data?.detail ??
+        "Failed to submit responses. Please try again.";
+
+      setSubmitError(message);
+      // Do NOT clear localStorage here — allow retry.
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Fired once by SectionTimer when the countdown hits zero.
+  const handleTimeExpire = () => {
+    handleSubmit(true);
+  };
 
   return (
     <StudentLayout
@@ -255,6 +420,28 @@ const RapidAssessmentRunner = () => {
 
       <main className="flex-1 px-4 sm:px-6 py-6 sm:py-10 pb-28">
         <div className="max-w-4xl mx-auto">
+          {submitError && (
+            <div
+              className="mb-5 px-4 py-3 rounded-lg border"
+              style={{
+                color: "#B91C1C",
+                backgroundColor: "#FEF2F2",
+                borderColor: "#FECACA",
+              }}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <span>{submitError}</span>
+                <button
+                  type="button"
+                  onClick={() => setSubmitError(null)}
+                  className="font-semibold"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
           {sectionError && !isLoading && (
             <p className="text-sm mb-4" style={{ color: "#B91C1C" }}>
               Couldn't load this section right now. Please refresh the page.
@@ -489,10 +676,15 @@ const RapidAssessmentRunner = () => {
           <button
             type="button"
             onClick={() => handleSubmit(false)}
+            disabled={isSubmitting}
             className={`flex items-center gap-2 px-6 py-3 text-base font-semibold ${theme.radius.md} ${theme.button.primary} ${theme.shadow.button}`}
+            style={{
+              opacity: isSubmitting ? 0.6 : 1,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+            }}
           >
-            Submit
-            <ChevronRight className="w-4 h-4" />
+            {isSubmitting ? "Submitting..." : "Submit"}
+            {!isSubmitting && <ChevronRight className="w-4 h-4" />}
           </button>
         </div>
       )}

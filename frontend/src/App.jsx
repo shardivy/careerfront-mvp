@@ -21,6 +21,7 @@ import TestInstructions from "./components/student/Testinstructions";
 
 // 404
 import NotFound from "./NotFound";
+import Default from "./components/student/Default";
 
 // Enterprise Components
 // import EnterpriseLayout from "./components/layouts/EnterpriseLayout";
@@ -71,6 +72,7 @@ const App = () => {
         <Route path="/reset-password" element={<ResetPassword />} /> */}
 
         {/* --------- Student Routes ----------- */}
+        <Route path="/" element={<Default />} />
         <Route path="/test-selection" element={<TestSelection />} />
         {/* <Route path="/test/aptitude" element={<AptitudeTest />} /> */}
         <Route path="/test/:testType/:sectionId/start" element={<AssessmentRunner />}/>
