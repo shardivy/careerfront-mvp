@@ -85,6 +85,7 @@ const ImageAssessmentRunner = () => {
     setTimeEndsAt(saved?.timeEndsAt ?? null);
     submittedRef.current = false;
     pausedRemainingRef.current = null;
+    setSubmitError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testType, sectionId]);
 
@@ -304,12 +305,49 @@ const ImageAssessmentRunner = () => {
     });
   };
 
+  const jumpToQuestion = (qIndex) => {
+    const targetPage = Math.floor(qIndex / QUESTIONS_PER_PAGE);
+    const scrollToCard = () =>
+      document
+        .getElementById(`iq-question-${qIndex}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+
+    if (targetPage !== pageIndex) {
+      setPageIndex(targetPage);
+      requestAnimationFrame(() => requestAnimationFrame(scrollToCard));
+    } else {
+      scrollToCard();
+    }
+  };
+
   const handleSubmit = async (autoSubmitted = false) => {
   if (isSubmitting) {
     return;
   }
 
   console.log("========== SUBMIT BUTTON CLICKED ==========");
+
+  // ============================================
+  // REQUIRE ALL QUESTIONS ANSWERED
+  //
+  // Skipped when the timer forces an auto-submit — a student who ran
+  // out of time should still have whatever they answered sent, not
+  // get stuck unable to submit at all.
+  // ============================================
+
+  if (!autoSubmitted) {
+    const firstUnansweredIndex = questions.findIndex(
+      (_, i) => answers[i] === undefined
+    );
+
+    if (firstUnansweredIndex !== -1) {
+      setSubmitError(
+        `Please answer all questions before submitting. Question ${firstUnansweredIndex + 1} is unanswered.`
+      );
+      jumpToQuestion(firstUnansweredIndex);
+      return;
+    }
+  }
 
   const attemptId = getAttemptId();
   const studentId = getStudentId();
@@ -477,21 +515,6 @@ const ImageAssessmentRunner = () => {
 
   
 
-  const jumpToQuestion = (qIndex) => {
-    const targetPage = Math.floor(qIndex / QUESTIONS_PER_PAGE);
-    const scrollToCard = () =>
-      document
-        .getElementById(`iq-question-${qIndex}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" });
-
-    if (targetPage !== pageIndex) {
-      setPageIndex(targetPage);
-      requestAnimationFrame(() => requestAnimationFrame(scrollToCard));
-    } else {
-      scrollToCard();
-    }
-  };
-
   const getNavState = (qIndex) => {
     if (marked.has(qIndex)) return "marked";
     if (answers[qIndex] !== undefined) return "answered";
@@ -548,7 +571,16 @@ const ImageAssessmentRunner = () => {
         borderColor: "#FECACA",
       }}
     >
-      {submitError}
+      <div className="flex items-center justify-between gap-4">
+        <span>{submitError}</span>
+        <button
+          type="button"
+          onClick={() => setSubmitError(null)}
+          className="font-semibold"
+        >
+          ×
+        </button>
+      </div>
     </div>
   )}
         {sectionError && !isLoading && (

@@ -9,11 +9,26 @@ import OfflineBanner from "../ui/OfflineBanner";
 import useOnlineStatus from "../hooks/useOnlineStatus";
 import { toast as toastManager, useToastManager } from "@/components/ui/toast";
 import StudentLayout, { TopBar, SectionTimer } from "../layouts/StudentLayout";
+import { useStudentQuestions } from "../hooks/useStudentQuestions";
+import { saveStudentResponsesApi } from "../../api/student-api/studentResponseApi";
+
+import {
+  getAttemptId,
+  getStudentId,
+  getSubsectionResponses,
+  saveQuestionResponse,
+  clearSubsectionResponses,
+} from "../../utils/studentResponseStorage";
 
 // Gray accent — matches the Rapid Assessment page's accent color (#808080)
 // used for its colored left bar + boxed, checkmarked option buttons.
 const ACCENT = "#808080";
 const ACCENT_SOFT = "#FFFBEB";
+
+// Height (px) of the sticky TopBar above the Likert header row, so the
+// header row can stick directly beneath it instead of overlapping it.
+// Adjust this if StudentLayout's TopBar height changes.
+const TOPBAR_HEIGHT = 64;
 
 const InterestAssessmentRunner = () => {
   // NOTE: `testType` is the backend section_code (e.g. "SEC001") and
@@ -28,6 +43,20 @@ const InterestAssessmentRunner = () => {
   const managerFromHook = useToastManager && useToastManager();
 
   const { section, loading: sectionLoading, error: sectionError } = UseTestSubsection(testType, sectionId);
+  const { questions: apiQuestions, loading: apiQuestionsLoading } = useStudentQuestions(section?.dbId);
+  const questions = apiQuestions.length > 0 ? apiQuestions : section?.questions || [];
+
+  // The Likert/interest scale is the same set of options for every
+  // question in this runner, so we only need it once, from the first
+  // question, to render the fixed header row.
+  const scaleOptions = questions[0]?.options || [];
+  const optionCount = scaleOptions.length;
+  // The question column is the ONLY flexible (1fr) track — it takes all
+  // remaining width, with a firm minimum so it always has room to fit
+  // on one line. Radio columns are capped at a small fixed width so
+  // they stay close together instead of spreading across the full row
+  // width — that spreading was also what starved the question column.
+  const gridTemplateColumns = `minmax(280px,1fr) repeat(${Math.max(optionCount, 1)}, 56px)`;
 
   // Restore any autosaved progress for this subsection. Keyed off the
   // route param directly so this works before `section` has loaded.
@@ -40,6 +69,8 @@ const InterestAssessmentRunner = () => {
     () => loadAutosave(testType, sectionId)?.timeEndsAt ?? null
   );
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const submittedRef = useRef(false);
 
   // How many ms were left on the clock at the moment we went offline.
@@ -58,14 +89,14 @@ const InterestAssessmentRunner = () => {
     setTimeEndsAt(saved?.timeEndsAt ?? null);
     submittedRef.current = false;
     pausedRemainingRef.current = null;
+    setSubmitError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testType, sectionId]);
 
   // section still resolving (section/subsection lookup + API fetch), or
   // the short fake-loading delay for the skeleton — either way, nothing
   // below can render real content yet.
-  const isLoading = loading || sectionLoading || !section;
-  const questions = section?.questions || [];
+  const isLoading = loading || sectionLoading || apiQuestionsLoading || !section;
 
   // Once we know the section's time limit, establish timeEndsAt exactly
   // ONCE — either from what was restored above, or freshly computed as
@@ -133,23 +164,152 @@ const InterestAssessmentRunner = () => {
     saveAutosave(testType, sectionId, { answers, timeEndsAt });
   }, [testType, sectionId, answers, timeEndsAt]);
 
+  // =====================================================
+  // SAVE ONE ANSWER — both to UI state and to the per-question
+  // localStorage bucket the submit API reads from. Mirrors
+  // ImageAssessmentRunner.handleSelect.
+  // =====================================================
   const setAnswer = (qIndex, optionIndex) => {
     setAnswers((prev) => ({ ...prev, [qIndex]: optionIndex }));
+
+    const question = questions[qIndex];
+    if (!question) return;
+
+    const attemptId = getAttemptId();
+    if (!attemptId) {
+      console.warn("attempt_id not found — skipping save for this answer");
+      return;
+    }
+
+    const subsectionId = section?.dbId;
+    if (subsectionId === undefined || subsectionId === null) {
+      console.warn("section.dbId not yet resolved — skipping save this tick");
+      return;
+    }
+
+    saveQuestionResponse({
+      attemptId,
+      subsectionId,
+      questionId: question.id,
+      selectedResponse: optionIndex,
+    });
   };
 
   const answeredCount = Object.keys(answers).length;
 
-  const handleSubmit = (autoSubmitted = false) => {
-    if (submittedRef.current && !autoSubmitted) return;
-    submittedRef.current = true;
-    clearAutosave(testType, sectionId);
-    navigate(`/test/${testType}/${sectionId}/summary`, {
-      state: {
-        answers,
-        totalQuestions: section?.totalQuestions ?? questions.length,
-        autoSubmitted,
-      },
-    });
+  // Scrolls to a given question card — used by the "answer all
+  // questions" validation below to take the student straight to the
+  // first thing they missed.
+  const scrollToQuestion = (qIndex) => {
+    document
+      .getElementById(`interest-question-${qIndex}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  // =====================================================
+  // SUBMIT — pushes all locally-saved responses to the backend, same
+  // flow as RapidAssessmentRunner / ImageAssessmentRunner: only clear
+  // local data after API success so a failed submit stays retryable.
+  // =====================================================
+  const handleSubmit = async (autoSubmitted = false) => {
+    if (submittedRef.current || isSubmitting) {
+      return;
+    }
+
+    // =================================================
+    // REQUIRE ALL QUESTIONS ANSWERED
+    //
+    // Skipped when the timer forces an auto-submit — a student who ran
+    // out of time should still have whatever they answered sent, not
+    // get stuck unable to submit at all.
+    // =================================================
+    if (!autoSubmitted) {
+      const firstUnansweredIndex = questions.findIndex(
+        (_, i) => answers[i] === undefined
+      );
+
+      if (firstUnansweredIndex !== -1) {
+        setSubmitError(
+          `Please answer all questions before submitting. Question ${firstUnansweredIndex + 1} is unanswered.`
+        );
+        scrollToQuestion(firstUnansweredIndex);
+        return;
+      }
+    }
+
+    const attemptId = getAttemptId();
+    const studentId = getStudentId();
+    const subsectionId = section?.dbId;
+
+    if (!attemptId) {
+      setSubmitError("Attempt ID not found.");
+      console.error("Attempt ID not found.");
+      return;
+    }
+
+    if (!studentId) {
+      setSubmitError("Student ID not found.");
+      console.error("Student ID not found.");
+      return;
+    }
+
+    if (!subsectionId) {
+      setSubmitError("Subsection ID not found.");
+      console.error("Subsection ID not found.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setSubmitError(null);
+
+      const localResponses = getSubsectionResponses(attemptId, subsectionId);
+
+      console.log("=================================");
+      console.log("INTEREST ASSESSMENT SUBMIT");
+      console.log("=================================");
+      console.log("Attempt ID:", attemptId);
+      console.log("Student ID:", studentId);
+      console.log("Subsection ID:", subsectionId);
+      console.log("Responses:", localResponses);
+
+      const result = await saveStudentResponsesApi({
+        attemptId,
+        studentId,
+        subsectionId,
+        responses: localResponses,
+      });
+
+      console.log("Interest assessment API success:", result);
+
+      // Only clear local data after API success — so a failed submit
+      // still leaves responses available for retry.
+      clearSubsectionResponses(attemptId, subsectionId);
+      clearAutosave(testType, sectionId);
+
+      submittedRef.current = true;
+
+      navigate(`/test/${testType}/${sectionId}/summary`, {
+        state: {
+          answers,
+          totalQuestions: questions.length,
+          autoSubmitted,
+          submittedResponse: result,
+        },
+      });
+    } catch (error) {
+      console.error("Interest assessment submit error:", error);
+
+      const message =
+        error?.response?.data?.message ??
+        error?.response?.data?.detail ??
+        "Failed to submit responses. Please try again.";
+
+      setSubmitError(message);
+      // Do NOT clear localStorage here — allow retry.
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Fired once by SectionTimer when the countdown hits zero.
@@ -179,7 +339,59 @@ const InterestAssessmentRunner = () => {
       {!isOnline && <OfflineBanner />}
 
       <main className="flex-1 px-4 sm:px-6 py-6 sm:py-10 pb-28">
-        <div className="max-w-6xl mx-auto">
+        <div className="max-w-6xl mx-auto" style={{ maxWidth: "72rem" }}>
+          {/* ================= LIKERT SCALE HEADER =================
+              Shown once, stuck below the TopBar. Lives in the SAME
+              container as the question rows (not a separate wrapper
+              outside <main>), and mirrors each row's left accent-bar
+              spacer, so its columns are pixel-aligned with the radio
+              dots below no matter how the viewport resizes. */}
+          {!isLoading && optionCount > 0 && (
+            <div
+              className="sticky z-10 bg-white/95 backdrop-blur border-b flex items-stretch mb-2"
+              style={{ top: TOPBAR_HEIGHT, borderColor: theme.colors.border }}
+            >
+              <span className="w-1.5 shrink-0" />
+              <div
+                className="flex-1 grid items-end gap-x-1 sm:gap-x-2 px-3 sm:px-5 py-7"
+                style={{ gridTemplateColumns }}
+              >
+                <div />
+                {scaleOptions.map((option, oi) => (
+                  <span
+                    key={oi}
+                    className="text-center text-[10px] sm:text-xs font-semibold leading-tight px-0.5"
+                    style={{ color: theme.colors.text.body }}
+                  >
+                    {option}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {submitError && (
+            <div
+              className="mb-5 px-4 py-3 rounded-lg border"
+              style={{
+                color: "#B91C1C",
+                backgroundColor: "#FEF2F2",
+                borderColor: "#FECACA",
+              }}
+            >
+              <div className="flex items-center justify-between gap-4">
+                <span>{submitError}</span>
+                <button
+                  type="button"
+                  onClick={() => setSubmitError(null)}
+                  className="font-semibold"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          )}
+
           {sectionError && !isLoading && (
             <p className="text-sm mb-4" style={{ color: "#B91C1C" }}>
               Couldn't load this section right now. Please refresh the page.
@@ -193,45 +405,61 @@ const InterestAssessmentRunner = () => {
               ))}
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 mt-2">
               {questions.map((q, qIndex) => (
                 <div
                   key={qIndex}
-                  className="flex items-stretch bg-white border rounded-xl overflow-hidden"
+                  id={`interest-question-${qIndex}`}
+                  className="flex items-stretch bg-white border rounded-xl overflow-hidden scroll-mt-32"
                   style={{ borderColor: theme.colors.border }}
                 >
                   <span className="w-1.5 shrink-0" style={{ backgroundColor: ACCENT }} />
-                  <div className="flex-1 flex flex-col lg:flex-row lg:items-center gap-3 lg:gap-4 px-3 sm:px-5 py-3.5">
-                    <div className="flex items-center gap-3 lg:flex-1 min-w-0">
+                  <div
+                    className="flex-1 grid items-center gap-x-1 sm:gap-x-2 px-3 sm:px-5 py-3.5"
+                    style={{ gridTemplateColumns }}
+                  >
+                    {/* Prompt — left side, single line, truncates with … if too long */}
+                    <div className="flex items-center gap-3 min-w-0 pr-2">
                       <span
                         className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
                         style={{ backgroundColor: ACCENT_SOFT, color: ACCENT }}
                       >
                         {qIndex + 1}
                       </span>
-                      <p className="text-sm sm:text-base" style={{ color: theme.colors.text.heading }}>
+                      <p
+                        title={q.prompt}
+                        className="text-sm sm:text-base truncate"
+                        style={{ color: theme.colors.text.heading }}
+                      >
                         {q.prompt}
                       </p>
                     </div>
 
-                    <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 lg:shrink-0">
+                    {/* Radio dots — aligned under the header labels */}
+                    <div
+                      role="radiogroup"
+                      aria-label={q.prompt}
+                      className="contents"
+                    >
                       {q.options.map((option, oi) => {
                         const isSelected = answers[qIndex] === oi;
                         return (
-                          <button
-                            key={oi}
-                            type="button"
-                            onClick={() => setAnswer(qIndex, oi)}
-                            className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border-2 font-semibold text-xs sm:text-sm whitespace-nowrap transition-all"
-                            style={{
-                              borderColor: isSelected ? ACCENT : theme.colors.border,
-                              backgroundColor: isSelected ? ACCENT_SOFT : "#FFFFFF",
-                              color: isSelected ? ACCENT : theme.colors.text.heading,
-                            }}
-                          >
-                            {isSelected && <Check className="w-3.5 h-3.5" />}
-                            {option}
-                          </button>
+                          <div key={oi} className="flex justify-center">
+                            <button
+                              type="button"
+                              role="radio"
+                              aria-checked={isSelected}
+                              aria-label={option}
+                              onClick={() => setAnswer(qIndex, oi)}
+                              className="h-6 w-6 sm:h-7 sm:w-7 rounded-full border-2 flex items-center justify-center transition-all shrink-0"
+                              style={{
+                                borderColor: isSelected ? ACCENT : theme.colors.border,
+                                backgroundColor: isSelected ? ACCENT : "#FFFFFF",
+                              }}
+                            >
+                              {isSelected && <Check className="w-3.5 h-3.5 text-white" strokeWidth={3} />}
+                            </button>
+                          </div>
                         );
                       })}
                     </div>
@@ -251,10 +479,15 @@ const InterestAssessmentRunner = () => {
           <button
             type="button"
             onClick={() => handleSubmit(false)}
+            disabled={isSubmitting}
             className={`flex items-center gap-2 px-6 py-3 text-base font-semibold ${theme.radius.md} ${theme.button.primary} ${theme.shadow.button}`}
+            style={{
+              opacity: isSubmitting ? 0.6 : 1,
+              cursor: isSubmitting ? "not-allowed" : "pointer",
+            }}
           >
-            Submit
-            <ChevronRight className="w-4 h-4" />
+            {isSubmitting ? "Submitting..." : "Submit"}
+            {!isSubmitting && <ChevronRight className="w-4 h-4" />}
           </button>
         </div>
       )}

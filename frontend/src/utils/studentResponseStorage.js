@@ -10,22 +10,45 @@ export const ATTEMPT_ID_KEY = "attempt_id";
 // student ID storage key.
 export const STUDENT_ID_KEY = "student_id";
 
-
-// =====================================================
-// GET ATTEMPT ID
-// =====================================================
-
 export const getAttemptId = () => {
-  return localStorage.getItem(ATTEMPT_ID_KEY);
+  const direct = localStorage.getItem(ATTEMPT_ID_KEY);
+  if (direct) return direct;
+
+  // Fallback: derive from examSessionData if the flat key was never set
+  try {
+    const raw = localStorage.getItem("examSessionData");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.attemptId) {
+        localStorage.setItem(ATTEMPT_ID_KEY, parsed.attemptId); // backfill
+        return parsed.attemptId;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to derive attemptId from examSessionData:", e);
+  }
+
+  return null;
 };
 
-
-// =====================================================
-// GET STUDENT ID
-// =====================================================
-
 export const getStudentId = () => {
-  return localStorage.getItem(STUDENT_ID_KEY);
+  const direct = localStorage.getItem(STUDENT_ID_KEY);
+  if (direct) return direct;
+
+  try {
+    const raw = localStorage.getItem("examSessionData");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.studentId) {
+        localStorage.setItem(STUDENT_ID_KEY, parsed.studentId); // backfill
+        return parsed.studentId;
+      }
+    }
+  } catch (e) {
+    console.error("Failed to derive studentId from examSessionData:", e);
+  }
+
+  return null;
 };
 
 

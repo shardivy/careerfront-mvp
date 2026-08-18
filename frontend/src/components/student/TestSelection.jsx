@@ -42,6 +42,45 @@ const TestSelection = ({ userName = "" }) => {
 
   const [loading, setLoading] = useState(true);
   const [progressVersion, setProgressVersion] = useState(0);
+  const [examSession, setExamSession] = useState(null);
+
+useEffect(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+
+  const persistFlatKeys = (data) => {
+    if (data?.attemptId) localStorage.setItem("attempt_id", data.attemptId);
+    if (data?.studentId) localStorage.setItem("student_id", data.studentId);
+  };
+
+  if (urlParams.get("attemptId")) {
+    const fromUrl = Object.fromEntries(urlParams.entries());
+    setExamSession(fromUrl);
+    try {
+      localStorage.setItem("examSessionData", JSON.stringify(fromUrl));
+      persistFlatKeys(fromUrl);
+    } catch (e) {
+      console.error("Failed to persist examSessionData:", e);
+    }
+    window.history.replaceState({}, "", window.location.pathname);
+    return;
+  }
+
+  try {
+    const raw = localStorage.getItem("examSessionData");
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      setExamSession(parsed);
+      persistFlatKeys(parsed);
+    }
+  } catch (e) {
+    console.error("Failed to parse examSessionData", e);
+  }
+}, []);
+
+console.log("Exam session data:", examSession);
+console.log("Attempt ID from localStorage:", localStorage.getItem("attempt_id"));
+
+
 
   useEffect(() => {
     const link = document.createElement("link");
@@ -115,7 +154,7 @@ const TestSelection = ({ userName = "" }) => {
       footer={
         <footer className="w-full py-5 sm:py-6">
           <p className="text-xs sm:text-sm text-center" style={{ color: theme.colors.text.light }}>
-            © 2026 TrueMindPath. All rights reserved.
+            © 2026 TheCareerFront. All rights reserved.
           </p>
         </footer>
       }

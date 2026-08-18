@@ -71,12 +71,6 @@ const AssessmentRunner = () => {
     ? Math.max(1, Math.ceil(questions.length / QUESTIONS_PER_PAGE))
     : 1;
 
-  // True whenever this render just delegates to a child runner below.
-  // Those runners own their own autosave data (including their own
-  // timeEndsAt) under the same (testType, sectionId) key, and they now
-  // handle their own offline-pause logic — so this component must NOT
-  // also touch timeEndsAt for these layouts, or the two pause effects
-  // would fight each other.
   const delegatesToChildRunner =
     singlePageLayout || singlePageImageLayout || singlePageInterestLayout;
 
@@ -95,8 +89,6 @@ const AssessmentRunner = () => {
   const [visited, setVisited] = useState(
     () => new Set(loadAutosave(testType, activeSectionId)?.visited ?? [0]),
   );
-  // NEW: absolute epoch-ms timestamp the timer counts down to. Restored
-  // from autosave on mount so a refresh doesn't reset the clock.
   const [timeEndsAt, setTimeEndsAt] = useState(
     () => loadAutosave(testType, activeSectionId)?.timeEndsAt ?? null,
   );
@@ -106,10 +98,6 @@ const AssessmentRunner = () => {
 
   const [submitError, setSubmitError] = useState(null);
 
-  // How many ms were left on the clock at the moment we went offline.
-  // Non-null only while we're in a "paused" (offline) state. Only
-  // relevant when this component owns the timer itself (i.e. not
-  // delegating to a child runner).
   const pausedRemainingRef = useRef(null);
 
   const isLoading =
@@ -132,53 +120,37 @@ const AssessmentRunner = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  // =====================================================
-// ONLINE / OFFLINE TOAST
-// =====================================================
-
-useEffect(() => {
-  if (isFirstOnlineCheck.current) {
-    isFirstOnlineCheck.current = false;
-    return;
-  }
-
-  const manager = managerFromHook || toastManager;
-
-  const send = (payload) => {
-    if (!manager) return;
-
-    if (typeof manager.create === "function") {
-      return manager.create(payload);
+  useEffect(() => {
+    if (isFirstOnlineCheck.current) {
+      isFirstOnlineCheck.current = false;
+      return;
     }
 
-    if (typeof manager.add === "function") {
-      return manager.add(payload);
+    const manager = managerFromHook || toastManager;
+
+    const send = (payload) => {
+      if (!manager) return;
+      if (typeof manager.create === "function") return manager.create(payload);
+      if (typeof manager.add === "function") return manager.add(payload);
+      if (typeof manager.push === "function") return manager.push(payload);
+      return undefined;
+    };
+
+    if (isOnline) {
+      send({
+        title: "Back online",
+        description: "Your connection has been restored.",
+        type: "success",
+      });
+    } else {
+      send({
+        title: "No internet connection",
+        description: "Please reconnect to continue your assessment.",
+        type: "error",
+      });
     }
+  }, [isOnline, managerFromHook]);
 
-    if (typeof manager.push === "function") {
-      return manager.push(payload);
-    }
-
-    return undefined;
-  };
-
-  if (isOnline) {
-    send({
-      title: "Back online",
-      description: "Your connection has been restored.",
-      type: "success",
-    });
-  } else {
-    send({
-      title: "No internet connection",
-      description: "Please reconnect to continue your assessment.",
-      type: "error",
-    });
-  }
-}, [isOnline, managerFromHook]);
-
-  // Whenever the active section changes, restore whatever was autosaved
-  // for the NEW section — including its saved timeEndsAt, if any.
   useEffect(() => {
     const saved = loadAutosave(testType, activeSectionId);
     setCurrentIndex(saved?.currentIndex ?? 0);
@@ -191,17 +163,14 @@ useEffect(() => {
     pausedRemainingRef.current = null;
     optionsRowRefs.current = {};
     setWrappedQuestions({});
+    setSubmitError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testType, activeSectionId]);
 
-  // NEW: once we know the section's time limit (and we're not just about
-  // to delegate to a child runner), establish timeEndsAt exactly ONCE —
-  // either from what was restored above, or freshly computed as
-  // Date.now() + limit if this section has never been started before.
   useEffect(() => {
     if (isLoading || !activeSectionId || delegatesToChildRunner) return;
     if (!Number.isFinite(section?.timeLimitSeconds)) return;
-    if (timeEndsAt) return; // already have one (restored or already set)
+    if (timeEndsAt) return;
     setTimeEndsAt(Date.now() + section.timeLimitSeconds * 1000);
   }, [
     isLoading,
@@ -211,10 +180,6 @@ useEffect(() => {
     timeEndsAt,
   ]);
 
-  // Pause the countdown while offline — only for the layouts this
-  // component renders itself (multi-question / single-question). For
-  // single-page* layouts we return a child runner below, which owns and
-  // pauses its own timer, so this effect deliberately no-ops for those.
   useEffect(() => {
     if (isLoading || !timeEndsAt || delegatesToChildRunner) return undefined;
 
@@ -247,80 +212,71 @@ useEffect(() => {
   }, [testType, activeSectionId, tabs.length]);
 
   useEffect(() => {
-  if (!activeSectionId || !questions.length) {
-    return;
-  }
-
-  const attemptId = getAttemptId();
-
-  if (!attemptId) {
-    console.warn("attempt_id not found in localStorage");
-    return;
-  }
-
-  const subsectionId = section?.dbId ?? activeSectionId;
-
-  const subsectionResponses = getSubsectionResponses(
-    attemptId,
-    subsectionId
-  );
-
-  if (!subsectionResponses.length) {
-    return;
-  }
-
-  const restoredAnswers = {};
-  const restoredMarked = new Set();
-
-  subsectionResponses.forEach((item) => {
-    const questionIndex = questions.findIndex(
-      (question) =>
-        String(question.id) === String(item.question_id)
-    );
-
-    if (questionIndex === -1) {
+    if (!activeSectionId || !questions.length) {
       return;
     }
 
-    if (
-      item.is_answered &&
-      item.selected_response !== null &&
-      item.selected_response !== undefined
-    ) {
-      restoredAnswers[questionIndex] = item.selected_response;
+    const attemptId = getAttemptId();
+
+    if (!attemptId) {
+      console.warn("attempt_id not found in localStorage");
+      return;
     }
 
-    if (item.is_marked) {
-      restoredMarked.add(questionIndex);
+    const subsectionId = section?.dbId ?? activeSectionId;
+
+    const subsectionResponses = getSubsectionResponses(
+      attemptId,
+      subsectionId
+    );
+
+    if (!subsectionResponses.length) {
+      return;
     }
-  });
 
-  if (Object.keys(restoredAnswers).length > 0) {
-    setAnswers((previous) => ({
-      ...previous,
-      ...restoredAnswers,
-    }));
-  }
+    const restoredAnswers = {};
+    const restoredMarked = new Set();
 
-  if (restoredMarked.size > 0) {
-    setMarked((previous) => {
-      const next = new Set(previous);
+    subsectionResponses.forEach((item) => {
+      const questionIndex = questions.findIndex(
+        (question) => String(question.id) === String(item.question_id)
+      );
 
-      restoredMarked.forEach((index) => {
-        next.add(index);
-      });
+      if (questionIndex === -1) {
+        return;
+      }
 
-      return next;
+      if (
+        item.is_answered &&
+        item.selected_response !== null &&
+        item.selected_response !== undefined
+      ) {
+        restoredAnswers[questionIndex] = item.selected_response;
+      }
+
+      if (item.is_marked) {
+        restoredMarked.add(questionIndex);
+      }
     });
-  }
-}, [
-  activeSectionId,
-  section?.dbId,
-  questions,
-]);
 
-  // Persist progress — including timeEndsAt — skipped when a child
-  // runner (Rapid/Image/Interest) owns this section's autosave data.
+    if (Object.keys(restoredAnswers).length > 0) {
+      setAnswers((previous) => ({
+        ...previous,
+        ...restoredAnswers,
+      }));
+    }
+
+    if (restoredMarked.size > 0) {
+      setMarked((previous) => {
+        const next = new Set(previous);
+        restoredMarked.forEach((index) => {
+          next.add(index);
+        });
+        return next;
+      });
+    }
+  }, [activeSectionId, section?.dbId, questions]);
+
   useEffect(() => {
     if (!activeSectionId) return;
     if (delegatesToChildRunner) return;
@@ -403,61 +359,54 @@ useEffect(() => {
   };
 
   const handleSelect = (qIndex, optionIndex) => {
-  // UI state
-  setAnswers((prev) => ({
-    ...prev,
-    [qIndex]: optionIndex,
-  }));
+    setAnswers((prev) => ({
+      ...prev,
+      [qIndex]: optionIndex,
+    }));
 
-  const question = questions[qIndex];
+    const question = questions[qIndex];
+    if (!question) return;
 
-  if (!question) return;
+    const attemptId = getAttemptId();
+    if (!attemptId) {
+      console.warn("attempt_id not found");
+      return;
+    }
 
-  const attemptId = getAttemptId();
+    if (section?.dbId === undefined || section?.dbId === null) {
+      console.warn("section.dbId not yet resolved — skipping save this tick");
+      return;
+    }
 
-  if (!attemptId) {
-    console.warn("attempt_id not found");
-    return;
-  }
-
-  const subsectionId = section?.dbId ?? activeSectionId;
-
-  // ONLY localStorage
-  saveQuestionResponse({
-    attemptId,
-    subsectionId,
-    questionId: question.id,
-    selectedResponse: optionIndex,
-  });
-};
+    saveQuestionResponse({
+      attemptId,
+      subsectionId: section.dbId,
+      questionId: question.id,
+      selectedResponse: optionIndex,
+    });
+  };
 
   const toggleMark = (qIndex) => {
     let newMarkedValue = false;
 
     setMarked((previous) => {
       const next = new Set(previous);
-
       if (next.has(qIndex)) {
         next.delete(qIndex);
-
         newMarkedValue = false;
       } else {
         next.add(qIndex);
-
         newMarkedValue = true;
       }
-
       return next;
     });
 
     const question = questions[qIndex];
-
     if (!question) {
       return;
     }
 
     const attemptId = getAttemptId();
-
     if (!attemptId) {
       return;
     }
@@ -473,86 +422,75 @@ useEffect(() => {
   };
 
   const submitSection = async (autoSubmitted = false) => {
-    // =================================================
-    // PREVENT DOUBLE SUBMIT
-    // =================================================
-
     if (submittedRef.current || isSubmitting) {
       return;
     }
 
     // =================================================
-    // GET IDS
+    // REQUIRE ALL QUESTIONS ANSWERED
+    //
+    // Skipped when the timer forces an auto-submit — a student who ran
+    // out of time should still have whatever they answered sent, not
+    // get stuck unable to submit at all.
     // =================================================
+    if (!autoSubmitted) {
+      const firstUnansweredIndex = questions.findIndex(
+        (_, i) => answers[i] === undefined
+      );
+
+      if (firstUnansweredIndex !== -1) {
+        setSubmitError(
+          `Please answer all questions before submitting. Question ${firstUnansweredIndex + 1} is unanswered.`
+        );
+
+        if (multiQuestionLayout) {
+          jumpToQuestion(firstUnansweredIndex);
+        } else {
+          goTo(firstUnansweredIndex);
+        }
+
+        return;
+      }
+    }
 
     const attemptId = getAttemptId();
-
     const studentId = getStudentId();
-
     const subsectionId = section?.dbId ?? activeSectionId;
-
-    // =================================================
-    // VALIDATE IDS
-    // =================================================
 
     if (!attemptId) {
       const message = "Attempt ID not found.";
-
       setSubmitError(message);
-
       console.error(message);
-
       return;
     }
 
     if (!studentId) {
       const message = "Student ID not found.";
-
       setSubmitError(message);
-
       console.error(message);
-
       return;
     }
 
     if (!subsectionId) {
       const message = "Subsection ID not found.";
-
       setSubmitError(message);
-
       console.error(message);
-
       return;
     }
 
     try {
       setIsSubmitting(true);
-
       setSubmitError(null);
-
-      // ===============================================
-      // GET ALL SUBSECTION RESPONSES
-      // ===============================================
 
       const localResponses = getSubsectionResponses(attemptId, subsectionId);
 
       console.log("=================================");
-
       console.log("SUBSECTION SUBMIT");
-
       console.log("=================================");
-
       console.log("Attempt ID:", attemptId);
-
       console.log("Student ID:", studentId);
-
       console.log("Subsection ID:", subsectionId);
-
       console.log("Responses:", localResponses);
-
-      // ===============================================
-      // API SUBMIT
-      // ===============================================
 
       const result = await saveStudentResponsesApi({
         attemptId,
@@ -563,23 +501,10 @@ useEffect(() => {
 
       console.log("Student response API success:", result);
 
-      // ===============================================
-      // ONLY CLEAR LOCAL DATA AFTER API SUCCESS
-      // ===============================================
-
       clearSubsectionResponses(attemptId, subsectionId);
-
       clearAutosave(testType, activeSectionId);
 
-      // ===============================================
-      // MARK AS SUBMITTED
-      // ===============================================
-
       submittedRef.current = true;
-
-      // ===============================================
-      // MOVE TO SUMMARY
-      // ===============================================
 
       navigate(`/test/${testType}/${activeSectionId}/summary`, {
         state: {
@@ -598,12 +523,6 @@ useEffect(() => {
         "Failed to submit student responses. Please try again.";
 
       setSubmitError(message);
-
-      // IMPORTANT:
-      // Do NOT clear localStorage here.
-      //
-      // The student can retry because
-      // responses are still locally available.
     } finally {
       setIsSubmitting(false);
     }
@@ -764,31 +683,34 @@ useEffect(() => {
 
           <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
             <div className="w-full lg:flex-1 min-w-0">
-              <div className="flex items-center justify-between mb-5 sm:mb-6">
-                {submitError && (
-                  <div
-                    className="max-w-6xl mx-auto mb-5 px-4 py-3 rounded-lg border"
-                    style={{
-                      color: "#B91C1C",
-                      backgroundColor: "#FEF2F2",
-                      borderColor: "#FECACA",
-                    }}
-                  >
-                    <div className="flex items-center justify-between gap-4">
-                      <span>{submitError}</span>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSubmitError(null);
-                        }}
-                        className="font-semibold"
-                      >
-                        ×
-                      </button>
-                    </div>
+              {/* FIX: error banner now rendered as its own full-width block,
+                  OUTSIDE the flex row below, so it no longer overlaps the
+                  "Page X of Y" / "answered" labels. */}
+              {submitError && (
+                <div
+                  className="mb-5 px-4 py-3 rounded-lg border"
+                  style={{
+                    color: "#B91C1C",
+                    backgroundColor: "#FEF2F2",
+                    borderColor: "#FECACA",
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <span>{submitError}</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSubmitError(null);
+                      }}
+                      className="font-semibold"
+                    >
+                      ×
+                    </button>
                   </div>
-                )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-between mb-5 sm:mb-6">
                 {isLoading ? (
                   <Skeleton className="h-4 w-48" />
                 ) : (
@@ -1202,6 +1124,28 @@ useEffect(() => {
               )}
             </div>
 
+            {submitError && (
+              <div
+                className="mb-5 px-4 py-3 rounded-lg border"
+                style={{
+                  color: "#B91C1C",
+                  backgroundColor: "#FEF2F2",
+                  borderColor: "#FECACA",
+                }}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <span>{submitError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setSubmitError(null)}
+                    className="font-semibold"
+                  >
+                    ×
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div
               className={`w-full ${theme.radius.lg} bg-white border border-slate-200 px-6 sm:px-8 py-6 sm:py-7 mb-5 sm:mb-6`}
             >
@@ -1401,9 +1345,18 @@ useEffect(() => {
                 <button
                   type="button"
                   onClick={handleNext}
+                  disabled={isSubmitting}
                   className={`flex items-center gap-2 text-base font-semibold px-6 py-3 ${theme.radius.md} transition-colors ${theme.button.primary} ${theme.shadow.button}`}
+                  style={{
+                    opacity: isSubmitting ? 0.6 : 1,
+                    cursor: isSubmitting ? "not-allowed" : "pointer",
+                  }}
                 >
-                  {currentIndex === questions.length - 1 ? "Submit" : "Next"}
+                  {isSubmitting
+                    ? "Submitting..."
+                    : currentIndex === questions.length - 1
+                      ? "Submit"
+                      : "Next"}
                   <ChevronRight className="w-5 h-5" />
                 </button>
               )}
