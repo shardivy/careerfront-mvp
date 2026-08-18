@@ -38,16 +38,32 @@ const SectionSummary = () => {
 
   const sectionMeta = SECTION_META[testType] || SECTION_META[section?.code];
 
-const sectionDisplayName =
-  sectionMeta?.name ||
-  section?.title ||
-  section?.name ||
-  section?.code ||
-  "Assessment";
+  const sectionDisplayName =
+    sectionMeta?.name ||
+    section?.title ||
+    section?.name ||
+    section?.code ||
+    "Assessment";
 
   const answers = location.state?.answers || {};
+
+  // =================================================
+  // TOTALS — prefer whatever the runner passed in nav state, which for
+  // Rapid Assessment now comes straight from the backend's save-response
+  // payload:
+  //   result.subsections[0].total_questions
+  //   result.subsections[0].answered_questions
+  // Falls back to section-derived totals / index-based answer counting
+  // only when the runner didn't supply explicit values (e.g. older
+  // AssessmentRunner flow, or a page refresh that lost nav state).
+  // =================================================
+  const explicitTotalQuestions = location.state?.totalQuestions;
+  const explicitAnsweredCount = location.state?.answeredCount;
+  const remainingQuestions = location.state?.remainingQuestions;
+  const subsectionStatus = location.state?.subsectionStatus;
+
   const totalQuestions =
-    location.state?.totalQuestions ||
+    explicitTotalQuestions ??
     (section && Array.isArray(section.questions)
       ? section.questions.length
       : typeof section?.totalQuestions === "number"
@@ -121,6 +137,9 @@ const sectionDisplayName =
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, section]);
 
+  // Row-level breakdown (used by the currently-commented-out Response
+  // Summary table). Still index-based since there's no per-question
+  // timing/answered data from the backend response — only totals.
   const responseRows = useMemo(() => {
     return Array.from({ length: totalQuestions }, (_, i) => {
       const isAnswered = answers[i] !== undefined;
@@ -134,7 +153,10 @@ const sectionDisplayName =
     });
   }, [answers, totalQuestions]);
 
-  const answeredCount = responseRows.filter((r) => r.answered).length;
+  // Prefer the backend's answered_questions count. Only fall back to
+  // counting responseRows (index-keyed) if the runner didn't pass an
+  // explicit count.
+  const answeredCount = explicitAnsweredCount ?? responseRows.filter((r) => r.answered).length;
   const markedCount = 0;
   const totalSeconds = responseRows.reduce((sum, r) => sum + (r.answered ? r.seconds : 0), 0);
   const avgSeconds = answeredCount ? Math.round(totalSeconds / answeredCount) : 0;
@@ -284,7 +306,7 @@ const sectionDisplayName =
                 Section Complete
               </h1>
               <p className="text-sm sm:text-base" style={{ color: theme.colors.text.body }}>
-              {sectionDisplayName} — {section.subtitle}
+                {sectionDisplayName} — {section.subtitle}
               </p>
             </div>
 
