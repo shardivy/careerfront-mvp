@@ -4,7 +4,11 @@ import { Flag, ChevronLeft, ChevronRight } from "lucide-react";
 import theme from "../../theme/theme";
 import { UseTestSubsections } from "../hooks/UseTestSubsections";
 import { isTestComplete, isSectionComplete } from "./Testprogress";
-import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
+import {
+  saveAutosave,
+  loadAutosave,
+  clearAutosave,
+} from "../hooks/testAutosave";
 import { useStudentQuestions } from "../hooks/useStudentQuestions";
 import Skeleton from "../ui/skeleton";
 import OfflineBanner from "../ui/OfflineBanner";
@@ -20,6 +24,17 @@ import StudentLayout, {
   SectionProgressDots,
 } from "../layouts/StudentLayout";
 
+import { saveStudentResponsesApi } from "../../api/student-api/studentResponseApi";
+
+import {
+  getAttemptId,
+  getStudentId,
+  getSubsectionResponses,
+  saveQuestionResponse,
+  saveQuestionMarkStatus,
+  clearSubsectionResponses,
+} from "../../utils/studentResponseStorage";
+
 const QUESTIONS_PER_PAGE = 10;
 
 const AssessmentRunner = () => {
@@ -29,14 +44,20 @@ const AssessmentRunner = () => {
   const isFirstOnlineCheck = useRef(true);
   const managerFromHook = useToastManager && useToastManager();
 
-  const { tabs, loading: subsectionsLoading, error: subsectionsError } = UseTestSubsections(testType);
+  const {
+    tabs,
+    loading: subsectionsLoading,
+    error: subsectionsError,
+  } = UseTestSubsections(testType);
 
   const sectionOrder = tabs.map((t) => t.id);
   const activeSectionId = sectionId || sectionOrder[0];
   const section = tabs.find((t) => t.id === activeSectionId) || null;
 
-  const { questions: apiQuestions, loading: apiQuestionsLoading } = useStudentQuestions(section?.dbId);
-  const questions = apiQuestions.length > 0 ? apiQuestions : (section?.questions || []);
+  const { questions: apiQuestions, loading: apiQuestionsLoading } =
+    useStudentQuestions(section?.dbId);
+  const questions =
+    apiQuestions.length > 0 ? apiQuestions : section?.questions || [];
 
   const sectionsTotal = sectionOrder.length;
   const sectionIndex = Math.max(0, sectionOrder.indexOf(activeSectionId));
@@ -60,27 +81,30 @@ const AssessmentRunner = () => {
     singlePageLayout || singlePageImageLayout || singlePageInterestLayout;
 
   const [currentIndex, setCurrentIndex] = useState(
-    () => loadAutosave(testType, activeSectionId)?.currentIndex ?? 0
+    () => loadAutosave(testType, activeSectionId)?.currentIndex ?? 0,
   );
   const [pageIndex, setPageIndex] = useState(
-    () => loadAutosave(testType, activeSectionId)?.pageIndex ?? 0
+    () => loadAutosave(testType, activeSectionId)?.pageIndex ?? 0,
   );
   const [answers, setAnswers] = useState(
-    () => loadAutosave(testType, activeSectionId)?.answers ?? {}
+    () => loadAutosave(testType, activeSectionId)?.answers ?? {},
   );
   const [marked, setMarked] = useState(
-    () => new Set(loadAutosave(testType, activeSectionId)?.marked ?? [])
+    () => new Set(loadAutosave(testType, activeSectionId)?.marked ?? []),
   );
   const [visited, setVisited] = useState(
-    () => new Set(loadAutosave(testType, activeSectionId)?.visited ?? [0])
+    () => new Set(loadAutosave(testType, activeSectionId)?.visited ?? [0]),
   );
   // NEW: absolute epoch-ms timestamp the timer counts down to. Restored
   // from autosave on mount so a refresh doesn't reset the clock.
   const [timeEndsAt, setTimeEndsAt] = useState(
-    () => loadAutosave(testType, activeSectionId)?.timeEndsAt ?? null
+    () => loadAutosave(testType, activeSectionId)?.timeEndsAt ?? null,
   );
   const submittedRef = useRef(false);
   const [loading, setLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const [submitError, setSubmitError] = useState(null);
 
   // How many ms were left on the clock at the moment we went offline.
   // Non-null only while we're in a "paused" (offline) state. Only
@@ -88,7 +112,8 @@ const AssessmentRunner = () => {
   // delegating to a child runner).
   const pausedRemainingRef = useRef(null);
 
-  const isLoading = loading || subsectionsLoading || apiQuestionsLoading || !section;
+  const isLoading =
+    loading || subsectionsLoading || apiQuestionsLoading || !section;
 
   const optionsRowRefs = useRef({});
   const [wrappedQuestions, setWrappedQuestions] = useState({});
@@ -107,27 +132,50 @@ const AssessmentRunner = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (isFirstOnlineCheck.current) {
-      isFirstOnlineCheck.current = false;
-      return;
+  // =====================================================
+// ONLINE / OFFLINE TOAST
+// =====================================================
+
+useEffect(() => {
+  if (isFirstOnlineCheck.current) {
+    isFirstOnlineCheck.current = false;
+    return;
+  }
+
+  const manager = managerFromHook || toastManager;
+
+  const send = (payload) => {
+    if (!manager) return;
+
+    if (typeof manager.create === "function") {
+      return manager.create(payload);
     }
 
-    const manager = managerFromHook || toastManager;
-    const send = (payload) => {
-      if (!manager) return;
-      if (typeof manager.create === "function") return manager.create(payload);
-      if (typeof manager.add === "function") return manager.add(payload);
-      if (typeof manager.push === "function") return manager.push(payload);
-      return undefined;
-    };
-
-    if (isOnline) {
-      send({ title: "Back online", description: "Your connection has been restored.", type: "success" });
-    } else {
-      send({ title: "No internet connection", description: "Please reconnect to continue your assessment.", type: "error" });
+    if (typeof manager.add === "function") {
+      return manager.add(payload);
     }
-  }, [isOnline]);
+
+    if (typeof manager.push === "function") {
+      return manager.push(payload);
+    }
+
+    return undefined;
+  };
+
+  if (isOnline) {
+    send({
+      title: "Back online",
+      description: "Your connection has been restored.",
+      type: "success",
+    });
+  } else {
+    send({
+      title: "No internet connection",
+      description: "Please reconnect to continue your assessment.",
+      type: "error",
+    });
+  }
+}, [isOnline, managerFromHook]);
 
   // Whenever the active section changes, restore whatever was autosaved
   // for the NEW section — including its saved timeEndsAt, if any.
@@ -155,7 +203,13 @@ const AssessmentRunner = () => {
     if (!Number.isFinite(section?.timeLimitSeconds)) return;
     if (timeEndsAt) return; // already have one (restored or already set)
     setTimeEndsAt(Date.now() + section.timeLimitSeconds * 1000);
-  }, [isLoading, activeSectionId, section?.timeLimitSeconds, delegatesToChildRunner, timeEndsAt]);
+  }, [
+    isLoading,
+    activeSectionId,
+    section?.timeLimitSeconds,
+    delegatesToChildRunner,
+    timeEndsAt,
+  ]);
 
   // Pause the countdown while offline — only for the layouts this
   // component renders itself (multi-question / single-question). For
@@ -192,6 +246,79 @@ const AssessmentRunner = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testType, activeSectionId, tabs.length]);
 
+  useEffect(() => {
+  if (!activeSectionId || !questions.length) {
+    return;
+  }
+
+  const attemptId = getAttemptId();
+
+  if (!attemptId) {
+    console.warn("attempt_id not found in localStorage");
+    return;
+  }
+
+  const subsectionId = section?.dbId ?? activeSectionId;
+
+  const subsectionResponses = getSubsectionResponses(
+    attemptId,
+    subsectionId
+  );
+
+  if (!subsectionResponses.length) {
+    return;
+  }
+
+  const restoredAnswers = {};
+  const restoredMarked = new Set();
+
+  subsectionResponses.forEach((item) => {
+    const questionIndex = questions.findIndex(
+      (question) =>
+        String(question.id) === String(item.question_id)
+    );
+
+    if (questionIndex === -1) {
+      return;
+    }
+
+    if (
+      item.is_answered &&
+      item.selected_response !== null &&
+      item.selected_response !== undefined
+    ) {
+      restoredAnswers[questionIndex] = item.selected_response;
+    }
+
+    if (item.is_marked) {
+      restoredMarked.add(questionIndex);
+    }
+  });
+
+  if (Object.keys(restoredAnswers).length > 0) {
+    setAnswers((previous) => ({
+      ...previous,
+      ...restoredAnswers,
+    }));
+  }
+
+  if (restoredMarked.size > 0) {
+    setMarked((previous) => {
+      const next = new Set(previous);
+
+      restoredMarked.forEach((index) => {
+        next.add(index);
+      });
+
+      return next;
+    });
+  }
+}, [
+  activeSectionId,
+  section?.dbId,
+  questions,
+]);
+
   // Persist progress — including timeEndsAt — skipped when a child
   // runner (Rapid/Image/Interest) owns this section's autosave data.
   useEffect(() => {
@@ -223,8 +350,7 @@ const AssessmentRunner = () => {
     : ((currentIndex + 1) / questions.length) * 100;
   const currentQuestion = questions[currentIndex];
   const useImageOptionUI =
-    activeSectionId === "spatial" ||
-    activeSectionId === "mental-agility";
+    activeSectionId === "spatial" || activeSectionId === "mental-agility";
 
   const pageStart = pageIndex * QUESTIONS_PER_PAGE;
   const pageQuestions = multiQuestionLayout
@@ -277,25 +403,210 @@ const AssessmentRunner = () => {
   };
 
   const handleSelect = (qIndex, optionIndex) => {
-    setAnswers((prev) => ({ ...prev, [qIndex]: optionIndex }));
-  };
+  // UI state
+  setAnswers((prev) => ({
+    ...prev,
+    [qIndex]: optionIndex,
+  }));
+
+  const question = questions[qIndex];
+
+  if (!question) return;
+
+  const attemptId = getAttemptId();
+
+  if (!attemptId) {
+    console.warn("attempt_id not found");
+    return;
+  }
+
+  const subsectionId = section?.dbId ?? activeSectionId;
+
+  // ONLY localStorage
+  saveQuestionResponse({
+    attemptId,
+    subsectionId,
+    questionId: question.id,
+    selectedResponse: optionIndex,
+  });
+};
 
   const toggleMark = (qIndex) => {
-    setMarked((prev) => {
-      const next = new Set(prev);
-      if (next.has(qIndex)) next.delete(qIndex);
-      else next.add(qIndex);
+    let newMarkedValue = false;
+
+    setMarked((previous) => {
+      const next = new Set(previous);
+
+      if (next.has(qIndex)) {
+        next.delete(qIndex);
+
+        newMarkedValue = false;
+      } else {
+        next.add(qIndex);
+
+        newMarkedValue = true;
+      }
+
       return next;
+    });
+
+    const question = questions[qIndex];
+
+    if (!question) {
+      return;
+    }
+
+    const attemptId = getAttemptId();
+
+    if (!attemptId) {
+      return;
+    }
+
+    const subsectionId = section?.dbId ?? activeSectionId;
+
+    saveQuestionMarkStatus({
+      attemptId,
+      subsectionId,
+      questionId: question.id,
+      isMarked: newMarkedValue,
     });
   };
 
-  const submitSection = (autoSubmitted = false) => {
-    if (submittedRef.current) return;
-    submittedRef.current = true;
-    clearAutosave(testType, activeSectionId);
-    navigate(`/test/${testType}/${activeSectionId}/summary`, {
-      state: { answers, totalQuestions: section?.totalQuestions ?? questions.length, autoSubmitted },
-    });
+  const submitSection = async (autoSubmitted = false) => {
+    // =================================================
+    // PREVENT DOUBLE SUBMIT
+    // =================================================
+
+    if (submittedRef.current || isSubmitting) {
+      return;
+    }
+
+    // =================================================
+    // GET IDS
+    // =================================================
+
+    const attemptId = getAttemptId();
+
+    const studentId = getStudentId();
+
+    const subsectionId = section?.dbId ?? activeSectionId;
+
+    // =================================================
+    // VALIDATE IDS
+    // =================================================
+
+    if (!attemptId) {
+      const message = "Attempt ID not found.";
+
+      setSubmitError(message);
+
+      console.error(message);
+
+      return;
+    }
+
+    if (!studentId) {
+      const message = "Student ID not found.";
+
+      setSubmitError(message);
+
+      console.error(message);
+
+      return;
+    }
+
+    if (!subsectionId) {
+      const message = "Subsection ID not found.";
+
+      setSubmitError(message);
+
+      console.error(message);
+
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+
+      setSubmitError(null);
+
+      // ===============================================
+      // GET ALL SUBSECTION RESPONSES
+      // ===============================================
+
+      const localResponses = getSubsectionResponses(attemptId, subsectionId);
+
+      console.log("=================================");
+
+      console.log("SUBSECTION SUBMIT");
+
+      console.log("=================================");
+
+      console.log("Attempt ID:", attemptId);
+
+      console.log("Student ID:", studentId);
+
+      console.log("Subsection ID:", subsectionId);
+
+      console.log("Responses:", localResponses);
+
+      // ===============================================
+      // API SUBMIT
+      // ===============================================
+
+      const result = await saveStudentResponsesApi({
+        attemptId,
+        studentId,
+        subsectionId,
+        responses: localResponses,
+      });
+
+      console.log("Student response API success:", result);
+
+      // ===============================================
+      // ONLY CLEAR LOCAL DATA AFTER API SUCCESS
+      // ===============================================
+
+      clearSubsectionResponses(attemptId, subsectionId);
+
+      clearAutosave(testType, activeSectionId);
+
+      // ===============================================
+      // MARK AS SUBMITTED
+      // ===============================================
+
+      submittedRef.current = true;
+
+      // ===============================================
+      // MOVE TO SUMMARY
+      // ===============================================
+
+      navigate(`/test/${testType}/${activeSectionId}/summary`, {
+        state: {
+          answers,
+          totalQuestions: section?.totalQuestions ?? questions.length,
+          autoSubmitted,
+          submittedResponse: result,
+        },
+      });
+    } catch (error) {
+      console.error("Student response submit error:", error);
+
+      const message =
+        error?.response?.data?.message ??
+        error?.response?.data?.detail ??
+        "Failed to submit student responses. Please try again.";
+
+      setSubmitError(message);
+
+      // IMPORTANT:
+      // Do NOT clear localStorage here.
+      //
+      // The student can retry because
+      // responses are still locally available.
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleNext = () => {
@@ -360,11 +671,23 @@ const AssessmentRunner = () => {
   };
 
   const navColors = {
-    current: { bg: theme.colors.primary, color: theme.colors.text.white, border: theme.colors.primary },
+    current: {
+      bg: theme.colors.primary,
+      color: theme.colors.text.white,
+      border: theme.colors.primary,
+    },
     answered: { bg: "#ECFDF5", color: "#047857", border: "#34D399" },
     marked: { bg: "#FEF3C7", color: "#92400E", border: "#FCD34D" },
-    unvisited: { bg: "#FFFFFF", color: theme.colors.text.light, border: theme.colors.border },
-    visited: { bg: "#FFFFFF", color: theme.colors.text.body, border: theme.colors.border },
+    unvisited: {
+      bg: "#FFFFFF",
+      color: theme.colors.text.light,
+      border: theme.colors.border,
+    },
+    visited: {
+      bg: "#FFFFFF",
+      color: theme.colors.text.body,
+      border: theme.colors.border,
+    },
   };
 
   const sharedTopBar = (
@@ -379,7 +702,10 @@ const AssessmentRunner = () => {
           <div className="px-5 sm:px-6">
             <div
               className="h-1 transition-all duration-300"
-              style={{ width: `${progressPct}%`, backgroundColor: theme.colors.primary }}
+              style={{
+                width: `${progressPct}%`,
+                backgroundColor: theme.colors.primary,
+              }}
             />
           </div>
         )
@@ -428,7 +754,10 @@ const AssessmentRunner = () => {
 
         <main className="flex-1 px-4 sm:px-6 py-6 sm:py-10">
           {subsectionsError && !isLoading && (
-            <p className="max-w-6xl mx-auto text-sm mb-4" style={{ color: "#B91C1C" }}>
+            <p
+              className="max-w-6xl mx-auto text-sm mb-4"
+              style={{ color: "#B91C1C" }}
+            >
               Couldn't load this section right now. Please refresh the page.
             </p>
           )}
@@ -436,17 +765,48 @@ const AssessmentRunner = () => {
           <div className="max-w-6xl mx-auto flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
             <div className="w-full lg:flex-1 min-w-0">
               <div className="flex items-center justify-between mb-5 sm:mb-6">
+                {submitError && (
+                  <div
+                    className="max-w-6xl mx-auto mb-5 px-4 py-3 rounded-lg border"
+                    style={{
+                      color: "#B91C1C",
+                      backgroundColor: "#FEF2F2",
+                      borderColor: "#FECACA",
+                    }}
+                  >
+                    <div className="flex items-center justify-between gap-4">
+                      <span>{submitError}</span>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSubmitError(null);
+                        }}
+                        className="font-semibold"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {isLoading ? (
                   <Skeleton className="h-4 w-48" />
                 ) : (
-                  <span className="text-sm sm:text-base font-semibold tracking-wide uppercase" style={{ color: theme.colors.text.light }}>
-                    Page {pageIndex + 1} of {totalPages} · Q{pageStart + 1}–{pageStart + pageQuestions.length} of {questions.length}
+                  <span
+                    className="text-sm sm:text-base font-semibold tracking-wide uppercase"
+                    style={{ color: theme.colors.text.light }}
+                  >
+                    Page {pageIndex + 1} of {totalPages} · Q{pageStart + 1}–
+                    {pageStart + pageQuestions.length} of {questions.length}
                   </span>
                 )}
                 {isLoading ? (
                   <Skeleton className="h-4 w-28 hidden sm:block" />
                 ) : (
-                  <span className="text-sm sm:text-base hidden sm:block" style={{ color: theme.colors.text.light }}>
+                  <span
+                    className="text-sm sm:text-base hidden sm:block"
+                    style={{ color: theme.colors.text.light }}
+                  >
                     {answeredCount} of {questions.length} answered
                   </span>
                 )}
@@ -455,11 +815,18 @@ const AssessmentRunner = () => {
               <div className="flex flex-col gap-5">
                 {isLoading
                   ? Array.from({ length: 4 }).map((_, i) => (
-                      <div key={i} className={`w-full ${theme.radius.lg} bg-white border px-6 py-6`} style={{ borderColor: theme.colors.border }}>
+                      <div
+                        key={i}
+                        className={`w-full ${theme.radius.lg} bg-white border px-6 py-6`}
+                        style={{ borderColor: theme.colors.border }}
+                      >
                         <Skeleton className="h-5 w-11/12 mb-4" />
                         <div className="flex flex-wrap gap-2.5">
                           {[1, 2, 3, 4].map((j) => (
-                            <Skeleton key={j} className="h-10 w-28 rounded-md" />
+                            <Skeleton
+                              key={j}
+                              className="h-10 w-28 rounded-md"
+                            />
                           ))}
                         </div>
                       </div>
@@ -476,8 +843,14 @@ const AssessmentRunner = () => {
                           style={{ borderColor: theme.colors.border }}
                         >
                           <div className="flex items-start justify-between gap-4 mb-4">
-                            <p className="text-base sm:text-lg leading-relaxed flex-1" style={{ color: theme.colors.text.heading }}>
-                              <span className="mr-2 font-semibold" style={{ color: theme.colors.text.light }}>
+                            <p
+                              className="text-base sm:text-lg leading-relaxed flex-1"
+                              style={{ color: theme.colors.text.heading }}
+                            >
+                              <span
+                                className="mr-2 font-semibold"
+                                style={{ color: theme.colors.text.light }}
+                              >
                                 {qIndex + 1}.
                               </span>
                               {q.prompt}
@@ -487,9 +860,15 @@ const AssessmentRunner = () => {
                               onClick={() => toggleMark(qIndex)}
                               className="shrink-0 flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md border transition-colors"
                               style={{
-                                borderColor: isMarked ? "#FCD34D" : theme.colors.border,
-                                backgroundColor: isMarked ? "#FEF3C7" : "#FFFFFF",
-                                color: isMarked ? "#92400E" : theme.colors.text.body,
+                                borderColor: isMarked
+                                  ? "#FCD34D"
+                                  : theme.colors.border,
+                                backgroundColor: isMarked
+                                  ? "#FEF3C7"
+                                  : "#FFFFFF",
+                                color: isMarked
+                                  ? "#92400E"
+                                  : theme.colors.text.body,
                               }}
                             >
                               <Flag className="w-3.5 h-3.5" />
@@ -527,27 +906,48 @@ const AssessmentRunner = () => {
                                       onClick={() => handleSelect(qIndex, oi)}
                                       className={`w-full flex items-center justify-between gap-3 ${theme.radius.lg} border px-5 py-3.5 text-left transition-colors`}
                                       style={{
-                                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-                                        backgroundColor: isSelected ? "#EFF6FF" : "#FFFFFF",
+                                        borderColor: isSelected
+                                          ? theme.colors.primary
+                                          : theme.colors.border,
+                                        backgroundColor: isSelected
+                                          ? "#EFF6FF"
+                                          : "#FFFFFF",
                                       }}
                                     >
                                       <span className="flex items-center gap-3.5 min-w-0">
                                         <span
                                           className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center"
-                                          style={{ borderColor: isSelected ? theme.colors.primary : "#CBD5E1" }}
+                                          style={{
+                                            borderColor: isSelected
+                                              ? theme.colors.primary
+                                              : "#CBD5E1",
+                                          }}
                                         >
                                           {isSelected && (
                                             <span
                                               className="w-3 h-3 rounded-full"
-                                              style={{ backgroundColor: theme.colors.primary }}
+                                              style={{
+                                                backgroundColor:
+                                                  theme.colors.primary,
+                                              }}
                                             />
                                           )}
                                         </span>
-                                        <span className="text-base break-words" style={{ color: theme.colors.text.heading }}>
+                                        <span
+                                          className="text-base break-words"
+                                          style={{
+                                            color: theme.colors.text.heading,
+                                          }}
+                                        >
                                           {option}
                                         </span>
                                       </span>
-                                      <span className="shrink-0 text-sm font-semibold" style={{ color: theme.colors.text.light }}>
+                                      <span
+                                        className="shrink-0 text-sm font-semibold"
+                                        style={{
+                                          color: theme.colors.text.light,
+                                        }}
+                                      >
                                         {letter}
                                       </span>
                                     </button>
@@ -566,14 +966,22 @@ const AssessmentRunner = () => {
                                       onClick={() => handleSelect(qIndex, oi)}
                                       className="flex items-center gap-2 text-sm sm:text-base font-medium px-4 py-2.5 rounded-md border transition-colors"
                                       style={{
-                                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-                                        backgroundColor: isSelected ? "#EFF6FF" : "#FFFFFF",
+                                        borderColor: isSelected
+                                          ? theme.colors.primary
+                                          : theme.colors.border,
+                                        backgroundColor: isSelected
+                                          ? "#EFF6FF"
+                                          : "#FFFFFF",
                                         color: theme.colors.text.heading,
                                       }}
                                     >
                                       <span
                                         className="font-semibold"
-                                        style={{ color: isSelected ? theme.colors.primary : theme.colors.text.light }}
+                                        style={{
+                                          color: isSelected
+                                            ? theme.colors.primary
+                                            : theme.colors.text.light,
+                                        }}
                                       >
                                         {letter}.
                                       </span>
@@ -590,18 +998,25 @@ const AssessmentRunner = () => {
               </div>
             </div>
 
-            <div className={`w-full lg:w-64 shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto ${theme.radius.lg} bg-white border border-slate-200 px-5 py-5 sm:py-6`}>
+            <div
+              className={`w-full lg:w-64 shrink-0 lg:sticky lg:top-6 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto ${theme.radius.lg} bg-white border border-slate-200 px-5 py-5 sm:py-6`}
+            >
               {isLoading ? (
                 <Skeleton className="h-4 w-24 mb-4" />
               ) : (
-                <h3 className="text-sm font-semibold tracking-wide uppercase mb-4" style={{ color: theme.colors.text.light }}>
+                <h3
+                  className="text-sm font-semibold tracking-wide uppercase mb-4"
+                  style={{ color: theme.colors.text.light }}
+                >
                   Navigator
                 </h3>
               )}
 
               <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-4 gap-2.5 mb-5">
                 {isLoading
-                  ? Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-lg" />)
+                  ? Array.from({ length: 12 }).map((_, i) => (
+                      <Skeleton key={i} className="aspect-square rounded-lg" />
+                    ))
                   : questions.map((_, i) => {
                       const state = getNavState(i);
                       const c = navColors[state];
@@ -611,7 +1026,11 @@ const AssessmentRunner = () => {
                           type="button"
                           onClick={() => jumpToQuestion(i)}
                           className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
-                          style={{ backgroundColor: c.bg, color: c.color, borderColor: c.border }}
+                          style={{
+                            backgroundColor: c.bg,
+                            color: c.color,
+                            borderColor: c.border,
+                          }}
                         >
                           {i + 1}
                         </button>
@@ -628,13 +1047,30 @@ const AssessmentRunner = () => {
                       </div>
                     ))
                   : [
-                      { label: "Answered", color: "#ECFDF5", border: "#34D399" },
+                      {
+                        label: "Answered",
+                        color: "#ECFDF5",
+                        border: "#34D399",
+                      },
                       { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
-                      { label: "Unvisited", color: "#FFFFFF", border: theme.colors.border },
+                      {
+                        label: "Unvisited",
+                        color: "#FFFFFF",
+                        border: theme.colors.border,
+                      },
                     ].map(({ label, color, border }) => (
                       <div key={label} className="flex items-center gap-2.5">
-                        <span className="w-4 h-4 rounded-full border" style={{ backgroundColor: color, borderColor: border }} />
-                        <span className="text-sm" style={{ color: theme.colors.text.body }}>
+                        <span
+                          className="w-4 h-4 rounded-full border"
+                          style={{
+                            backgroundColor: color,
+                            borderColor: border,
+                          }}
+                        />
+                        <span
+                          className="text-sm"
+                          style={{ color: theme.colors.text.body }}
+                        >
                           {label}
                         </span>
                       </div>
@@ -654,7 +1090,10 @@ const AssessmentRunner = () => {
                 className={`flex items-center gap-2 text-base font-medium px-5 py-3 ${theme.radius.md} border transition-colors`}
                 style={{
                   borderColor: theme.colors.border,
-                  color: pageIndex === 0 ? theme.colors.text.light : theme.colors.text.body,
+                  color:
+                    pageIndex === 0
+                      ? theme.colors.text.light
+                      : theme.colors.text.body,
                   backgroundColor: "#FFFFFF",
                   opacity: pageIndex === 0 ? 0.6 : 1,
                   cursor: pageIndex === 0 ? "not-allowed" : "pointer",
@@ -666,7 +1105,10 @@ const AssessmentRunner = () => {
             )}
 
             {!isLoading && (
-              <span className="text-sm sm:text-base hidden sm:block" style={{ color: theme.colors.text.light }}>
+              <span
+                className="text-sm sm:text-base hidden sm:block"
+                style={{ color: theme.colors.text.light }}
+              >
                 {answeredCount} of {questions.length} answered
               </span>
             )}
@@ -677,16 +1119,29 @@ const AssessmentRunner = () => {
               <button
                 type="button"
                 onClick={handleNextPage}
+                disabled={isSubmitting}
                 className={`flex items-center gap-2 text-base font-semibold px-6 py-3 ${theme.radius.md} transition-colors ${theme.button.primary} ${theme.shadow.button}`}
+                style={{
+                  opacity: isSubmitting ? 0.6 : 1,
+                  cursor: isSubmitting ? "not-allowed" : "pointer",
+                }}
               >
-                {pageIndex === totalPages - 1 ? "Submit" : "Next"}
-                <ChevronRight className="w-5 h-5" />
+                {isSubmitting
+                  ? "Submitting..."
+                  : pageIndex === totalPages - 1
+                    ? "Submit"
+                    : "Next"}
+
+                {!isSubmitting && <ChevronRight className="w-5 h-5" />}
               </button>
             )}
           </div>
 
           {!isLoading && (
-            <p className="max-w-6xl mx-auto text-sm text-center mt-4 sm:hidden" style={{ color: theme.colors.text.light }}>
+            <p
+              className="max-w-6xl mx-auto text-sm text-center mt-4 sm:hidden"
+              style={{ color: theme.colors.text.light }}
+            >
               {answeredCount} of {questions.length} answered
             </p>
           )}
@@ -701,7 +1156,10 @@ const AssessmentRunner = () => {
 
       <main className="flex-1 px-4 sm:px-6 py-6 sm:py-10">
         {subsectionsError && !isLoading && (
-          <p className="max-w-6xl mx-auto text-sm mb-4" style={{ color: "#B91C1C" }}>
+          <p
+            className="max-w-6xl mx-auto text-sm mb-4"
+            style={{ color: "#B91C1C" }}
+          >
             Couldn't load this section right now. Please refresh the page.
           </p>
         )}
@@ -712,7 +1170,10 @@ const AssessmentRunner = () => {
               {isLoading ? (
                 <Skeleton className="h-4 w-32" />
               ) : (
-                <span className="text-sm sm:text-base font-semibold tracking-wide uppercase" style={{ color: theme.colors.text.light }}>
+                <span
+                  className="text-sm sm:text-base font-semibold tracking-wide uppercase"
+                  style={{ color: theme.colors.text.light }}
+                >
                   Question {currentIndex + 1} / {questions.length}
                 </span>
               )}
@@ -724,9 +1185,15 @@ const AssessmentRunner = () => {
                   onClick={() => toggleMark(currentIndex)}
                   className={`flex items-center gap-2 text-sm sm:text-base font-medium px-4 py-2 sm:py-2.5 ${theme.radius.md} border transition-colors`}
                   style={{
-                    borderColor: marked.has(currentIndex) ? "#FCD34D" : theme.colors.border,
-                    backgroundColor: marked.has(currentIndex) ? "#FEF3C7" : "#FFFFFF",
-                    color: marked.has(currentIndex) ? "#92400E" : theme.colors.text.body,
+                    borderColor: marked.has(currentIndex)
+                      ? "#FCD34D"
+                      : theme.colors.border,
+                    backgroundColor: marked.has(currentIndex)
+                      ? "#FEF3C7"
+                      : "#FFFFFF",
+                    color: marked.has(currentIndex)
+                      ? "#92400E"
+                      : theme.colors.text.body,
                   }}
                 >
                   <Flag className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
@@ -735,7 +1202,9 @@ const AssessmentRunner = () => {
               )}
             </div>
 
-            <div className={`w-full ${theme.radius.lg} bg-white border border-slate-200 px-6 sm:px-8 py-6 sm:py-7 mb-5 sm:mb-6`}>
+            <div
+              className={`w-full ${theme.radius.lg} bg-white border border-slate-200 px-6 sm:px-8 py-6 sm:py-7 mb-5 sm:mb-6`}
+            >
               {isLoading ? (
                 <>
                   <Skeleton className="h-4 w-full mb-2" />
@@ -744,10 +1213,16 @@ const AssessmentRunner = () => {
                 </>
               ) : useImageOptionUI ? (
                 <div className="flex flex-col items-center">
-                  <p className="text-base sm:text-lg leading-relaxed mb-5 text-center" style={{ color: theme.colors.text.heading }}>
+                  <p
+                    className="text-base sm:text-lg leading-relaxed mb-5 text-center"
+                    style={{ color: theme.colors.text.heading }}
+                  >
                     {currentQuestion.prompt}
                   </p>
-                  <div className="w-full max-w-xs border-2 rounded-lg p-3 flex items-center justify-center bg-white" style={{ borderColor: theme.colors.border }}>
+                  <div
+                    className="w-full max-w-xs border-2 rounded-lg p-3 flex items-center justify-center bg-white"
+                    style={{ borderColor: theme.colors.border }}
+                  >
                     <img
                       src={currentQuestion.questionImage}
                       alt="Question figure (X)"
@@ -757,14 +1232,17 @@ const AssessmentRunner = () => {
                         e.currentTarget.style.display = "none";
                         e.currentTarget.parentElement.insertAdjacentHTML(
                           "beforeend",
-                          '<span style="color:#DC2626;font-size:13px;">Image failed to load — check the file path</span>'
+                          '<span style="color:#DC2626;font-size:13px;">Image failed to load — check the file path</span>',
                         );
                       }}
                     />
                   </div>
                 </div>
               ) : (
-                <p className="text-lg sm:text-xl leading-relaxed" style={{ color: theme.colors.text.heading }}>
+                <p
+                  className="text-lg sm:text-xl leading-relaxed"
+                  style={{ color: theme.colors.text.heading }}
+                >
                   {currentQuestion.prompt}
                 </p>
               )}
@@ -773,7 +1251,11 @@ const AssessmentRunner = () => {
             {isLoading ? (
               <div className="flex flex-col gap-3 sm:gap-3.5 mb-6 sm:mb-8">
                 {[1, 2, 3, 4].map((i) => (
-                  <div key={i} className={`w-full ${theme.radius.lg} border px-4 sm:px-6 py-3.5 sm:py-4`} style={{ borderColor: theme.colors.border }}>
+                  <div
+                    key={i}
+                    className={`w-full ${theme.radius.lg} border px-4 sm:px-6 py-3.5 sm:py-4`}
+                    style={{ borderColor: theme.colors.border }}
+                  >
                     <div className="flex items-center gap-4">
                       <Skeleton className="w-5 h-5 rounded-full" />
                       <Skeleton className="h-4 flex-1" />
@@ -793,7 +1275,9 @@ const AssessmentRunner = () => {
                       onClick={() => handleSelect(currentIndex, i)}
                       className="w-full rounded-xl border-2 px-5 py-4 text-left transition-all duration-200"
                       style={{
-                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                        borderColor: isSelected
+                          ? theme.colors.primary
+                          : theme.colors.border,
                         backgroundColor: isSelected ? "#EFF6FF" : "#FFFFFF",
                       }}
                     >
@@ -801,13 +1285,20 @@ const AssessmentRunner = () => {
                         <div
                           className="w-10 h-10 rounded-full flex items-center justify-center font-bold"
                           style={{
-                            backgroundColor: isSelected ? theme.colors.primary : "#F1F5F9",
-                            color: isSelected ? "#FFFFFF" : theme.colors.text.heading,
+                            backgroundColor: isSelected
+                              ? theme.colors.primary
+                              : "#F1F5F9",
+                            color: isSelected
+                              ? "#FFFFFF"
+                              : theme.colors.text.heading,
                           }}
                         >
                           {letter}
                         </div>
-                        <span className="text-lg font-medium" style={{ color: theme.colors.text.heading }}>
+                        <span
+                          className="text-lg font-medium"
+                          style={{ color: theme.colors.text.heading }}
+                        >
                           {option}
                         </span>
                       </div>
@@ -827,22 +1318,39 @@ const AssessmentRunner = () => {
                       onClick={() => handleSelect(currentIndex, i)}
                       className={`w-full flex items-center justify-between gap-3 ${theme.radius.lg} border px-5 sm:px-7 py-4 sm:py-4.5 text-left transition-colors`}
                       style={{
-                        borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                        borderColor: isSelected
+                          ? theme.colors.primary
+                          : theme.colors.border,
                         backgroundColor: isSelected ? "#EFF6FF" : "#FFFFFF",
                       }}
                     >
                       <span className="flex items-center gap-3.5 sm:gap-4 min-w-0">
                         <span
                           className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center"
-                          style={{ borderColor: isSelected ? theme.colors.primary : "#CBD5E1" }}
+                          style={{
+                            borderColor: isSelected
+                              ? theme.colors.primary
+                              : "#CBD5E1",
+                          }}
                         >
-                          {isSelected && <span className="w-3 h-3 rounded-full" style={{ backgroundColor: theme.colors.primary }} />}
+                          {isSelected && (
+                            <span
+                              className="w-3 h-3 rounded-full"
+                              style={{ backgroundColor: theme.colors.primary }}
+                            />
+                          )}
                         </span>
-                        <span className="text-base sm:text-lg break-words" style={{ color: theme.colors.text.heading }}>
+                        <span
+                          className="text-base sm:text-lg break-words"
+                          style={{ color: theme.colors.text.heading }}
+                        >
                           {option}
                         </span>
                       </span>
-                      <span className="shrink-0 text-sm sm:text-base font-semibold" style={{ color: theme.colors.text.light }}>
+                      <span
+                        className="shrink-0 text-sm sm:text-base font-semibold"
+                        style={{ color: theme.colors.text.light }}
+                      >
                         {letter}
                       </span>
                     </button>
@@ -862,7 +1370,10 @@ const AssessmentRunner = () => {
                   className={`flex items-center gap-2 text-base font-medium px-5 py-3 ${theme.radius.md} border transition-colors`}
                   style={{
                     borderColor: theme.colors.border,
-                    color: currentIndex === 0 ? theme.colors.text.light : theme.colors.text.body,
+                    color:
+                      currentIndex === 0
+                        ? theme.colors.text.light
+                        : theme.colors.text.body,
                     backgroundColor: "#FFFFFF",
                     opacity: currentIndex === 0 ? 0.6 : 1,
                     cursor: currentIndex === 0 ? "not-allowed" : "pointer",
@@ -876,7 +1387,10 @@ const AssessmentRunner = () => {
               {isLoading ? (
                 <Skeleton className="h-4 w-28 hidden sm:block" />
               ) : (
-                <span className="text-sm sm:text-base hidden sm:block" style={{ color: theme.colors.text.light }}>
+                <span
+                  className="text-sm sm:text-base hidden sm:block"
+                  style={{ color: theme.colors.text.light }}
+                >
                   {answeredCount} of {questions.length} answered
                 </span>
               )}
@@ -896,24 +1410,34 @@ const AssessmentRunner = () => {
             </div>
 
             {!isLoading && (
-              <p className="text-sm text-center mt-4 sm:hidden" style={{ color: theme.colors.text.light }}>
+              <p
+                className="text-sm text-center mt-4 sm:hidden"
+                style={{ color: theme.colors.text.light }}
+              >
                 {answeredCount} of {questions.length} answered
               </p>
             )}
           </div>
 
-          <div className={`w-full lg:w-64 shrink-0 ${theme.radius.lg} bg-white border border-slate-200 px-5 py-5 sm:py-6`}>
+          <div
+            className={`w-full lg:w-64 shrink-0 ${theme.radius.lg} bg-white border border-slate-200 px-5 py-5 sm:py-6`}
+          >
             {isLoading ? (
               <Skeleton className="h-4 w-24 mb-4" />
             ) : (
-              <h3 className="text-sm font-semibold tracking-wide uppercase mb-4" style={{ color: theme.colors.text.light }}>
+              <h3
+                className="text-sm font-semibold tracking-wide uppercase mb-4"
+                style={{ color: theme.colors.text.light }}
+              >
                 Navigator
               </h3>
             )}
 
             <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-4 gap-2.5 mb-5">
               {isLoading
-                ? Array.from({ length: 12 }).map((_, i) => <Skeleton key={i} className="aspect-square rounded-lg" />)
+                ? Array.from({ length: 12 }).map((_, i) => (
+                    <Skeleton key={i} className="aspect-square rounded-lg" />
+                  ))
                 : questions.map((_, i) => {
                     const state = getNavState(i);
                     const c = navColors[state];
@@ -923,7 +1447,11 @@ const AssessmentRunner = () => {
                         type="button"
                         onClick={() => goTo(i)}
                         className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
-                        style={{ backgroundColor: c.bg, color: c.color, borderColor: c.border }}
+                        style={{
+                          backgroundColor: c.bg,
+                          color: c.color,
+                          borderColor: c.border,
+                        }}
                       >
                         {i + 1}
                       </button>
@@ -940,14 +1468,31 @@ const AssessmentRunner = () => {
                     </div>
                   ))
                 : [
-                    { label: "Current", color: theme.colors.primary, filled: true },
+                    {
+                      label: "Current",
+                      color: theme.colors.primary,
+                      filled: true,
+                    },
                     { label: "Answered", color: "#ECFDF5", border: "#34D399" },
                     { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
-                    { label: "Unvisited", color: "#FFFFFF", border: theme.colors.border },
+                    {
+                      label: "Unvisited",
+                      color: "#FFFFFF",
+                      border: theme.colors.border,
+                    },
                   ].map(({ label, color, border, filled }) => (
                     <div key={label} className="flex items-center gap-2.5">
-                      <span className="w-4 h-4 rounded-full border" style={{ backgroundColor: filled ? color : color, borderColor: border || color }} />
-                      <span className="text-sm" style={{ color: theme.colors.text.body }}>
+                      <span
+                        className="w-4 h-4 rounded-full border"
+                        style={{
+                          backgroundColor: filled ? color : color,
+                          borderColor: border || color,
+                        }}
+                      />
+                      <span
+                        className="text-sm"
+                        style={{ color: theme.colors.text.body }}
+                      >
                         {label}
                       </span>
                     </div>
@@ -961,7 +1506,6 @@ const AssessmentRunner = () => {
 };
 
 export default AssessmentRunner;
-
 
 // import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 //   import { useParams, useNavigate } from "react-router-dom";
@@ -984,7 +1528,6 @@ export default AssessmentRunner;
 //     SectionProgressLabel,
 //     SectionProgressDots,
 //   } from "../layouts/StudentLayout";
-
 
 //   // Sections that use the "many questions per page, options in one row" layout
 //   // const MULTI_QUESTION_SECTIONS = ["quantitative", "verbal", "reasoning"];
