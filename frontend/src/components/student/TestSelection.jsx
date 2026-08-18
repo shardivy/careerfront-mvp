@@ -208,12 +208,12 @@ console.log("Attempt ID from localStorage:", localStorage.getItem("attempt_id"))
                     All tests complete
                   </span>
                   <span className="block text-xs sm:text-sm" style={{ color: theme.colors.text.light }}>
-                    Your career intelligence report is ready to view.
+                    Your career intelligence report is under review.
                   </span>
                 </span>
               </span>
               <span className="flex items-center gap-1.5 text-sm font-semibold shrink-0" style={{ color: theme.colors.primary }}>
-                View Report
+                View Details
                 <ArrowRight className="w-4 h-4" />
               </span>
             </button>
