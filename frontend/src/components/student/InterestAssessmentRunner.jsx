@@ -428,13 +428,12 @@ const InterestAssessmentRunner = () => {
                       </span>
                       <p
                         title={q.prompt}
-                        className="text-sm sm:text-base truncate"
+                        className="text-sm sm:text-base truncate font-bold"
                         style={{ color: theme.colors.text.heading }}
                       >
                         {q.prompt}
                       </p>
                     </div>
-
                     {/* Radio dots — aligned under the header labels */}
                     <div
                       role="radiogroup"

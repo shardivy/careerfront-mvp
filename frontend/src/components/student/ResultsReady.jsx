@@ -19,7 +19,7 @@ const ResultsReady = () => {
   const [loading, setLoading] = useState(true);
 
   const {
-    reportId = "TMP-2024-8741",
+    reportId = "TMP-2026-0002",
     studentName = "Alex M.",
     score = 94,
     trajectoriesAnalyzed = 248,
@@ -58,7 +58,7 @@ const ResultsReady = () => {
   const handleDownloadPdf = () => {
     const link = document.createElement("a");
     link.href = REPORT_PDF_URL;
-    link.download = `TrueMindPath-Report-${reportId}.pdf`;
+    link.download = `TheCreerFront-Report-${reportId}.pdf`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -187,7 +187,7 @@ const ResultsReady = () => {
           ) : (
             <h1 className="text-3xl sm:text-5xl font-extrabold tracking-tight mb-4 sm:mb-5 leading-tight text-white">
               Your Report is{" "}
-              <span style={{ color: theme.colors.primaryLight }}>Ready.</span>
+              <span style={{ color: theme.colors.primaryLight }}>Under Review.</span>
             </h1>
           )}
 
@@ -203,7 +203,27 @@ const ResultsReady = () => {
             </p>
           )}
 
-          {loading ? (
+
+{loading ? (
+  <Skeleton dark className="h-4 w-56 mb-8 sm:mb-10" />
+) : (
+  <p
+    className="text-xs sm:text-sm mb-8 sm:mb-10"
+    style={{ color: "#64748B" }}
+  >
+    Your report is currently under review. If you have any questions or
+    need further assistance, please contact your admin at{" "}
+    <span
+      className="font-bold"
+      style={{ color: theme.colors.primaryLight }}
+    >
+      support@ramsolutions.in
+    </span>
+    .
+  </p>
+)}
+
+          {/* {loading ? (
             <Skeleton dark className="h-4 w-56 mb-8 sm:mb-10" />
           ) : (
             <p className="text-xs sm:text-sm mb-8 sm:mb-10" style={{ color: "#64748B" }}>
@@ -214,10 +234,10 @@ const ResultsReady = () => {
                 {score}/100
               </span>
             </p>
-          )}
+          )} */}
 
           {/* Actions */}
-          <div className="w-full flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mb-8 sm:mb-10">
+          {/* <div className="w-full flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mb-8 sm:mb-10">
             {loading ? (
               <>
                 <Skeleton dark className="h-12 w-full sm:w-56 rounded-md" />
@@ -250,7 +270,7 @@ const ResultsReady = () => {
                 </button>
               </>
             )}
-          </div>
+          </div> */}
 
           {/* Badges */}
           <div className="flex flex-wrap items-center justify-center gap-2.5 sm:gap-3">
@@ -275,7 +295,7 @@ const ResultsReady = () => {
       </main>
 
       {/* Footer timestamp */}
-      <footer className="w-full px-4 sm:px-8 pb-5 sm:pb-6 relative z-10">
+      {/* <footer className="w-full px-4 sm:px-8 pb-5 sm:pb-6 relative z-10">
         {loading ? (
           <Skeleton dark className="h-3 w-40 mx-auto" />
         ) : (
@@ -283,7 +303,7 @@ const ResultsReady = () => {
             Generated {formattedDate}
           </p>
         )}
-      </footer>
+      </footer> */}
     </div>
   );
 };

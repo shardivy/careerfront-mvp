@@ -321,9 +321,9 @@ const ImageAssessmentRunner = () => {
   };
 
   const handleSubmit = async (autoSubmitted = false) => {
-  if (isSubmitting) {
-    return;
-  }
+ if (isSubmitting || submittedRef.current) {
+  return;
+}
 
   console.log("========== SUBMIT BUTTON CLICKED ==========");
 
@@ -673,13 +673,13 @@ const ImageAssessmentRunner = () => {
                             )}
                           </span>
                           <p
-                            className="text-base sm:text-lg leading-relaxed pt-0.5"
+                            className="text-base sm:text-lg leading-relaxed pt-0.5 font-bold"
                             style={{ color: theme.colors.text.heading }}
                           >
                             {q.prompt}
                           </p>
                         </div>
-                        <button
+                        {/* <button
                           type="button"
                           onClick={() => toggleMark(qIndex)}
                           className="shrink-0 flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md border transition-colors"
@@ -697,7 +697,7 @@ const ImageAssessmentRunner = () => {
                           <span className="hidden sm:inline">
                             {isMarked ? "Marked" : "Mark"}
                           </span>
-                        </button>
+                        </button> */}
                       </div>
 
                       <div className="flex justify-center mb-5">
@@ -818,7 +818,7 @@ const ImageAssessmentRunner = () => {
                   ))
                 : [
                     { label: "Answered", color: "#ECFDF5", border: "#34D399" },
-                    { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
+                    // { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
                     {
                       label: "Unvisited",
                       color: "#FFFFFF",

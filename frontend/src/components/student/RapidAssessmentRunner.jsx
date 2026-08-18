@@ -57,7 +57,7 @@ const RapidAssessmentRunner = () => {
   const [selectedMonths, setSelectedMonths] = useState(
     () => new Set(loadAutosave(testType, sectionId)?.selectedMonths ?? [])
   );
-  // NEW: absolute epoch-ms timestamp the timer counts down to. Restored
+  // Absolute epoch-ms timestamp the timer counts down to. Restored
   // from autosave so a refresh doesn't reset the clock.
   const [timeEndsAt, setTimeEndsAt] = useState(
     () => loadAutosave(testType, sectionId)?.timeEndsAt ?? null
@@ -304,6 +304,18 @@ const RapidAssessmentRunner = () => {
       return;
     }
 
+    // Client-side fallback counts (used only if the backend response
+    // doesn't include per-subsection totals for some reason).
+    const monthAnswered = selectedMonths.size > 0 ? 1 : 0;
+    const fallbackTotal = groups.reduce(
+      (sum, g) => sum + (g.type === "month-multiselect" ? 1 : (g.items?.length || 0)),
+      0
+    );
+    const fallbackAnswered = groups.reduce((sum, g) => {
+      if (g.type === "month-multiselect") return sum + monthAnswered;
+      return sum + g.items.filter((item) => answers[item.id] !== undefined).length;
+    }, 0);
+
     try {
       setIsSubmitting(true);
       setSubmitError(null);
@@ -327,6 +339,22 @@ const RapidAssessmentRunner = () => {
 
       console.log("Rapid assessment API success:", result);
 
+      // =================================================
+      // Backend returns per-subsection totals in the response, e.g.:
+      // { subsections: [{ subsection_id, total_questions,
+      //                    answered_questions, remaining_questions,
+      //                    subsection_status }] }
+      // Prefer that over anything computed client-side — it's the
+      // source of truth for what was actually saved/graded.
+      // =================================================
+      const subsectionResult =
+        result?.subsections?.find(
+          (s) => String(s.subsection_id) === String(subsectionId)
+        ) || result?.subsections?.[0];
+
+      const totalQuestionsFromApi = subsectionResult?.total_questions;
+      const answeredQuestionsFromApi = subsectionResult?.answered_questions;
+
       // Only clear local data after API success — so a failed submit
       // still leaves responses available for retry.
       clearSubsectionResponses(attemptId, subsectionId);
@@ -337,7 +365,10 @@ const RapidAssessmentRunner = () => {
       navigate(`/test/${testType}/${sectionId}/summary`, {
         state: {
           answers: { ...answers, "days-30-31": Array.from(selectedMonths) },
-          totalQuestions: section?.totalQuestions,
+          totalQuestions: totalQuestionsFromApi ?? fallbackTotal,
+          answeredCount: answeredQuestionsFromApi ?? fallbackAnswered,
+          remainingQuestions: subsectionResult?.remaining_questions,
+          subsectionStatus: subsectionResult?.subsection_status,
           autoSubmitted,
           submittedResponse: result,
         },
