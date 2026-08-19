@@ -48,17 +48,16 @@ const formatTime = (totalSeconds) => {
 };
 
 export const SectionTimer = ({
-    endsAt,          // epoch ms — countdown hits zero when Date.now() reaches this
+    endsAt,
     onExpire,
     loading = false,
     tickMs = 1000,
     lowThreshold = 60,
+    paused = false,        // NEW
 }) => {
     const [secondsLeft, setSecondsLeft] = useState(null);
     const expiredRef = useRef(false);
 
-    // Keep the latest onExpire in a ref so the tick effect below doesn't
-    // need to restart every time the parent re-creates that callback.
     const onExpireRef = useRef(onExpire);
     useEffect(() => {
         onExpireRef.current = onExpire;
@@ -70,12 +69,15 @@ export const SectionTimer = ({
             return undefined;
         }
 
+        // While paused (offline), don't run the interval at all — this
+        // freezes secondsLeft at whatever it last showed instead of
+        // continuing to recompute it against the real Date.now().
+        if (paused) {
+            return undefined;
+        }
+
         expiredRef.current = false;
 
-        // Recompute from Date.now() every tick (instead of decrementing a
-        // counter) so the displayed time is always correct even if the
-        // tab was backgrounded/throttled — and so a fresh mount after a
-        // refresh picks up exactly where it should.
         const tick = () => {
             const remaining = Math.max(0, Math.round((endsAt - Date.now()) / 1000));
             setSecondsLeft(remaining);
@@ -85,10 +87,10 @@ export const SectionTimer = ({
             }
         };
 
-        tick(); // set immediately, don't wait a full tick to show correct time
+        tick();
         const interval = setInterval(tick, tickMs);
         return () => clearInterval(interval);
-    }, [endsAt, loading, tickMs]);
+    }, [endsAt, loading, tickMs, paused]);   // paused added to deps
 
     if (loading || secondsLeft === null) return <Skeleton className="h-5 w-16" />;
 

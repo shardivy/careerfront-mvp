@@ -104,7 +104,7 @@ import axios from "axios";
 
 const axiosInstance = axios.create({
     baseURL: "https://careerfront-apt.ramsolutions.in/api/",
-    // baseURL: "http://192.168.141.38:8000/api/",
+    // baseURL: "http://192.168.1.2:8000/api/",
 });
 
 const publicEndpoints = [

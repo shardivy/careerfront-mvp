@@ -37,6 +37,26 @@ const GROUP_META = {
   "month-multiselect": { accent: "#808080", soft: "#FFF1F2", icon: CalendarDays },
 };
 
+// =====================================================
+// LABEL -> BACKEND OPTION ID MAPS
+//
+// string-match and parity buttons still DISPLAY "Similar"/"Different"
+// and "Odd"/"Even" to the student, but the value actually stored via
+// setAnswer() and submitted as option_id must be a letter, same
+// convention as compare-larger/compare-smaller ("A"/"B") — not the
+// raw label text. Order fixed as requested: Similar=A, Different=B,
+// Odd=A, Even=B.
+// =====================================================
+const STRING_MATCH_OPTIONS = [
+  { label: "Similar", id: "A" },
+  { label: "Different", id: "B" },
+];
+
+const PARITY_OPTIONS = [
+  { label: "Odd", id: "A" },
+  { label: "Even", id: "B" },
+];
+
 const RapidAssessmentRunner = () => {
   const { testType = "aptitude", sectionId } = useParams();
   const navigate = useNavigate();
@@ -127,20 +147,19 @@ const RapidAssessmentRunner = () => {
   // Pause the countdown while offline. `timeEndsAt` is an absolute
   // timestamp, so simply leaving it untouched wouldn't pause anything —
   // the clock would keep ticking down against real time. Instead, while
-  // offline we repeatedly nudge `timeEndsAt` forward so the *remaining*
-  // time stays frozen at whatever it was the moment we lost connection.
-  // Once back online, we resume counting down from that frozen remainder.
+  // offline we freeze `timeEndsAt` ONCE at whatever remaining time was
+  // left the moment we lost connection, rather than repeatedly nudging
+  // it forward on an interval. Once back online, we resume counting down
+  // from that frozen remainder.
   useEffect(() => {
     if (isLoading || !timeEndsAt) return undefined;
 
     if (!isOnline) {
       if (pausedRemainingRef.current == null) {
         pausedRemainingRef.current = Math.max(0, timeEndsAt - Date.now());
-      }
-      const interval = setInterval(() => {
         setTimeEndsAt(Date.now() + pausedRemainingRef.current);
-      }, 1000);
-      return () => clearInterval(interval);
+      }
+      return undefined;
     }
 
     if (pausedRemainingRef.current != null) {
@@ -164,11 +183,11 @@ const RapidAssessmentRunner = () => {
   // SAVE ONE ANSWER — both to UI state and to the per-question
   // localStorage bucket the submit API reads from.
   //
-  // ASSUMPTION: selected_response_json.option_id is sent as a STRING
-  // version of whatever value was picked (a number, "Similar"/"Different",
-  // "Odd"/"Even") — NOT an A/B/C/D letter, since these aren't multiple
-  // choice questions. Adjust `toResponseValue` below if the backend
-  // expects a different shape for this question type.
+  // `value` must always be the backend's real option id — "A"/"B" for
+  // compare-larger/compare-smaller, string-match, AND parity now (see
+  // STRING_MATCH_OPTIONS / PARITY_OPTIONS above) — never the option's
+  // display text/number. Sending raw text/number here is what caused
+  // corrupted option_id values downstream in past bugs.
   // =====================================================
   const toResponseValue = (value) => {
     if (value === null || value === undefined) return null;
@@ -409,6 +428,7 @@ const RapidAssessmentRunner = () => {
               endsAt={timeEndsAt}
               loading={isLoading}
               onExpire={handleTimeExpire}
+                paused={!isOnline} 
             />
           }
           below={
@@ -529,10 +549,10 @@ const RapidAssessmentRunner = () => {
                                   {qNum}
                                 </span>
                                 <div className="flex-1 flex items-center justify-center gap-3 sm:gap-5">
-                                  {item.values.map((val, vi) => {
-                                    const isSelected = answers[item.id] === val;
+                                  {item.options.map((opt, vi) => {
+                                    const isSelected = answers[item.id] === opt.id;
                                     return (
-                                      <React.Fragment key={val}>
+                                      <React.Fragment key={opt.id}>
                                         {vi === 1 && (
                                           <span className="text-xs font-bold uppercase tracking-wider shrink-0" style={{ color: theme.colors.text.light }}>
                                             vs
@@ -540,7 +560,7 @@ const RapidAssessmentRunner = () => {
                                         )}
                                         <button
                                           type="button"
-                                          onClick={() => setAnswer(item.id, val)}
+                                          onClick={() => setAnswer(item.id, opt.id)}
                                           className="flex items-center justify-center gap-1.5 w-28 sm:w-32 py-3 rounded-lg border-2 font-bold tabular-nums text-lg sm:text-xl transition-all"
                                           style={{
                                             borderColor: isSelected ? meta.accent : theme.colors.border,
@@ -549,7 +569,7 @@ const RapidAssessmentRunner = () => {
                                           }}
                                         >
                                           {isSelected && <Check className="w-4 h-4" />}
-                                          {val}
+                                          {opt.text}
                                         </button>
                                       </React.Fragment>
                                     );
@@ -596,20 +616,23 @@ const RapidAssessmentRunner = () => {
                                   className="flex shrink-0 self-center rounded-full border p-0.5"
                                   style={{ borderColor: theme.colors.border }}
                                 >
-                                  {["Similar", "Different"].map((opt) => {
-                                    const isSelected = answers[item.id] === opt;
+                                  {/* Displays "Similar"/"Different" but stores/submits
+                                      the mapped letter id ("A"/"B") — see
+                                      STRING_MATCH_OPTIONS above. */}
+                                  {STRING_MATCH_OPTIONS.map(({ label, id: optId }) => {
+                                    const isSelected = answers[item.id] === optId;
                                     return (
                                       <button
-                                        key={opt}
+                                        key={optId}
                                         type="button"
-                                        onClick={() => setAnswer(item.id, opt)}
+                                        onClick={() => setAnswer(item.id, optId)}
                                         className="w-28 sm:w-32 py-2 rounded-full text-sm sm:text-base font-semibold transition-colors"
                                         style={{
                                           backgroundColor: isSelected ? meta.accent : "transparent",
                                           color: isSelected ? "#FFFFFF" : theme.colors.text.body,
                                         }}
                                       >
-                                        {opt}
+                                        {label}
                                       </button>
                                     );
                                   })}
@@ -635,20 +658,23 @@ const RapidAssessmentRunner = () => {
                                 {item.value}
                               </span>
                               <div className="flex shrink-0 rounded-full border p-0.5" style={{ borderColor: theme.colors.border }}>
-                                {["Odd", "Even"].map((opt) => {
-                                  const isSelected = answers[item.id] === opt;
+                                {/* Displays "Odd"/"Even" but stores/submits the
+                                    mapped letter id ("A"/"B") — see
+                                    PARITY_OPTIONS above. */}
+                                {PARITY_OPTIONS.map(({ label, id: optId }) => {
+                                  const isSelected = answers[item.id] === optId;
                                   return (
                                     <button
-                                      key={opt}
+                                      key={optId}
                                       type="button"
-                                      onClick={() => setAnswer(item.id, opt)}
+                                      onClick={() => setAnswer(item.id, optId)}
                                       className="px-4 py-2 rounded-full text-sm sm:text-base font-semibold transition-colors"
                                       style={{
                                         backgroundColor: isSelected ? meta.accent : "transparent",
                                         color: isSelected ? "#FFFFFF" : theme.colors.text.body,
                                       }}
                                     >
-                                      {opt}
+                                      {label}
                                     </button>
                                   );
                                 })}

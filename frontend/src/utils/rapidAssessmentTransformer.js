@@ -14,6 +14,18 @@
 //   negative_marks: 0.0,
 //   display_order: 1
 // }
+//
+// NOTE ON WHERE item.options IS ACTUALLY USED:
+// RapidAssessmentRunner only reads the normalized `options` array
+// produced below for the compare-larger / compare-smaller group
+// types (it does `item.options.map(opt => ...)` and
+// `setAnswer(item.id, opt.id)` there). For string-match and parity
+// groups, the runner hardcodes its own ["Similar","Different"] /
+// ["Odd","Even"] arrays directly in JSX and passes those raw strings
+// straight to setAnswer — it never reads item.options for those two
+// types. So normalizeOption's fallback firing on "Odd"/"Even"/
+// "Similar"/"Different" text is expected and harmless; it doesn't
+// feed into what actually gets stored or submitted for those groups.
 const NUMBER_REGEX = /-?\d+(\.\d+)?/g;
 
 // Pull plain display text out of each option, regardless of whether the
@@ -22,6 +34,36 @@ const getOptionText = (opt) => {
   if (opt == null) return "";
   if (typeof opt === "object") return String(opt.text ?? "").trim();
   return String(opt).trim();
+};
+
+// A, B, C, D... from a 0-based index. Used as a fallback option id
+// when the real backend id isn't available on the option itself —
+// compare-larger/compare-smaller always come from the API in a fixed
+// two-option order (first = A, second = B), so position is a safe
+// stand-in for the real letter id.
+const indexToLetter = (idx) => String.fromCharCode(65 + Number(idx));
+
+// Normalize each option to { id, text }. RapidAssessmentRunner renders
+// compare-larger/compare-smaller items as `item.options.map(opt => ...)`
+// and calls `setAnswer(item.id, opt.id)` — it needs the real backend
+// option id ("A"/"B"), never raw display text/number.
+//
+// IMPORTANT: if `opt` ever arrives as a bare string/number instead of
+// an { id, text } object (e.g. if an upstream hook strips the id before
+// this runs), do NOT use the option's own value as its id — that just
+// makes id === text (e.g. id: "487"), which is not a valid option_id
+// the backend accepts. Fall back to the positional letter instead.
+//
+// Also deliberately NOT `opt.id ?? indexToLetter(idx)` — `??` only
+// falls back on null/undefined, so an empty-string id ("") would slip
+// through as-is and produce a blank option_id. Treat "" the same as
+// missing.
+const normalizeOption = (opt, idx) => {
+  if (opt != null && typeof opt === "object") {
+    const hasRealId = opt.id !== null && opt.id !== undefined && String(opt.id).trim() !== "";
+    return { id: hasRealId ? String(opt.id) : indexToLetter(idx), text: getOptionText(opt) };
+  }
+  return { id: indexToLetter(idx), text: String(opt) };
 };
 
 const classifyQuestion = (q) => {
@@ -50,14 +92,16 @@ export const transformRapidAssessmentQuestions = (apiQuestions = []) => {
     // never a prefixed string like "q-73".
     const id = q.id;
     const prompt = q.question_text || q.prompt || "";
-    const optionTexts = (q.options || []).map(getOptionText);
+    const options = (q.options || []).map(normalizeOption);
 
     switch (type) {
       case "compare-larger":
-        larger.push({ id, values: optionTexts });
+        // RapidAssessmentRunner reads item.options (array of {id, text})
+        // for this group type — NOT item.values.
+        larger.push({ id, options });
         break;
       case "compare-smaller":
-        smaller.push({ id, values: optionTexts });
+        smaller.push({ id, options });
         break;
       case "string-match": {
         // NEEDS CONFIRMATION — see note below.

@@ -331,6 +331,7 @@ const InterestAssessmentRunner = () => {
               endsAt={timeEndsAt}
               loading={isLoading}
               onExpire={handleTimeExpire}
+                paused={!isOnline} 
             />
           }
         />
