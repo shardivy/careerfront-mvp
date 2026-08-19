@@ -242,22 +242,42 @@ class SubsectionListAPIView(APIView):
 
     def get(self, request):
 
-        # Get one structure row for each subsection
-        subsection_ids = (
-            AssessmentStructure.objects
-            .filter(status="ACTIVE")
-            .values("subsection_id")
-            .distinct()
-        )
+        # =====================================================
+        # 1. GET GRADE ID
+        # =====================================================
+
+        grade_id = request.query_params.get("grade_id")
+
+        # =====================================================
+        # 2. BUILD QUERY
+        # =====================================================
+
+        filters = {
+            "status": "ACTIVE"
+        }
+
+        if grade_id:
+
+            try:
+                grade_id = int(grade_id)
+            except (TypeError, ValueError):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "grade_id must be an integer."
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            filters["grade_id"] = grade_id
+
+        # =====================================================
+        # 3. GET SUBSECTIONS
+        # =====================================================
 
         subsections = (
             AssessmentStructure.objects
-            .filter(
-                status="ACTIVE",
-                subsection_id__in=Subquery(
-                    subsection_ids.values("subsection_id")
-                )
-            )
+            .filter(**filters)
             .values(
                 "subsection_id",
                 "subsection_code",
@@ -266,12 +286,15 @@ class SubsectionListAPIView(APIView):
                 "subsection_display_order",
                 "time_limit_minutes",
                 "instructions",
+                "grade_id",
+                "grade_name",
             )
-            .order_by(
-                # "subsection_display_order",
-                "subsection_id"
-            )
+            .order_by("subsection_id")
         )
+
+        # =====================================================
+        # 4. PAGINATION
+        # =====================================================
 
         paginator = self.pagination_class()
 
@@ -281,28 +304,40 @@ class SubsectionListAPIView(APIView):
             view=self
         )
 
+        # =====================================================
+        # 5. RESPONSE DATA
+        # =====================================================
+
         data = []
 
         for subsection in page:
+
             data.append({
+                "grade_id": subsection["grade_id"],
+                "grade_name": subsection["grade_name"],
+
                 "subsection_id": subsection["subsection_id"],
                 "subsection_code": subsection["subsection_code"],
                 "subsection_name": subsection["subsection_name"],
-                "subsection_description": subsection[
-                    "subsection_description"
-                ],
-                "subsection_display_order": subsection[
-                    "subsection_display_order"
-                ],
-                "time_limit_minutes": subsection[
-                    "time_limit_minutes"
-                ],
+                "subsection_description": (
+                    subsection["subsection_description"]
+                ),
+                "subsection_display_order": (
+                    subsection["subsection_display_order"]
+                ),
+                "time_limit_minutes": (
+                    subsection["time_limit_minutes"]
+                ),
                 "instructions": subsection["instructions"],
             })
 
+        # =====================================================
+        # 6. RESPONSE
+        # =====================================================
+
         return paginator.get_paginated_response({
             "success": True,
+            "grade_id": grade_id,
             "subsections": data
-        })
-        
+        })      
         
