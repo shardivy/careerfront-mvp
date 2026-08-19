@@ -37,6 +37,45 @@ import {
 
 const QUESTIONS_PER_PAGE = 10;
 
+// Some question_text values from the backend arrive as pipe-delimited
+// segments (an intro line followed by several statements), sometimes with
+// stray \r\n and repeated spaces around each "|", e.g.:
+//   "If the first two statements are true, the third statement is \r\n     |     Sanya is older than Sahil.     |     ..."
+// This splits on "|", collapses whitespace/newlines within each segment,
+// and drops empty segments so each part can be rendered on its own line
+// instead of showing the raw pipes.
+const splitPromptSegments = (text) => {
+  if (!text) return [];
+  return String(text)
+    .split("|")
+    .map((segment) => segment.replace(/\r\n/g, " ").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+};
+
+const QuestionPrompt = ({ text, className, style }) => {
+  const segments = splitPromptSegments(text);
+  if (segments.length <= 1) {
+    return (
+      <span className={className} style={style}>
+        {text}
+      </span>
+    );
+  }
+  return (
+    <span className={className} style={style}>
+      {segments.map((segment, i) =>
+        i === 0 ? (
+          <React.Fragment key={i}>{segment}</React.Fragment>
+        ) : (
+          <span key={i} className="block mt-1.5">
+            {segment}
+          </span>
+        ),
+      )}
+    </span>
+  );
+};
+
 const AssessmentRunner = () => {
   const { testType = "aptitude", sectionId } = useParams();
   const navigate = useNavigate();
@@ -777,7 +816,7 @@ const AssessmentRunner = () => {
                               >
                                 {qIndex + 1}.
                               </span>
-                              {q.prompt}
+                              <QuestionPrompt text={q.prompt} />
                             </p>
                             {/* <button
                               type="button"
@@ -1163,7 +1202,7 @@ const AssessmentRunner = () => {
                     className="text-base sm:text-lg leading-relaxed mb-5 text-center"
                     style={{ color: theme.colors.text.heading }}
                   >
-                    {currentQuestion.prompt}
+                    <QuestionPrompt text={currentQuestion.prompt} />
                   </p>
                   <div
                     className="w-full max-w-xs border-2 rounded-lg p-3 flex items-center justify-center bg-white"
@@ -1189,7 +1228,7 @@ const AssessmentRunner = () => {
                   className="text-lg sm:text-xl leading-relaxed"
                   style={{ color: theme.colors.text.heading }}
                 >
-                  {currentQuestion.prompt}
+                  <QuestionPrompt text={currentQuestion.prompt} />
                 </p>
               )}
             </div>
