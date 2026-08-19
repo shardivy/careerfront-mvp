@@ -1,5 +1,5 @@
 import React from "react";
-import { Lock, MessageCircle, ShieldCheck } from "lucide-react";
+import { Lock, Mail, ShieldCheck } from "lucide-react";
 import theme from "../../theme/theme";
 
 const Default = () => {
@@ -44,12 +44,10 @@ const Default = () => {
                     {/* Actions */}
                     <div className="flex flex-col gap-3">
                         <a
-                            href="https://wa.me/918484905526"
-                            target="_blank"
-                            rel="noopener noreferrer"
+                            href="mailto:support@ramsolutions.in"
                             className={`w-full inline-flex items-center justify-center gap-2 ${theme.radius.md} px-5 py-3 text-sm font-semibold ${theme.button.primary} ${theme.shadow.button} transition-colors`}
                         >
-                            <MessageCircle className="h-4 w-4" />
+                            <Mail className="h-4 w-4" />
                             Contact admin
                         </a>
                     </div>
