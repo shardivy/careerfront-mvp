@@ -188,7 +188,13 @@ const AssessmentRunner = () => {
         type: "error",
       });
     }
-  }, [isOnline, managerFromHook]);
+    // managerFromHook is intentionally excluded: useToastManager() returns a
+    // new reference on every render, so including it here reruns this
+    // effect (and posts a new toast) on every render — which re-renders
+    // the tree, produces another new reference, and loops until React
+    // throws "Maximum update depth exceeded".
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
 
   useEffect(() => {
     const saved = loadAutosave(testType, activeSectionId);
@@ -222,14 +228,20 @@ const AssessmentRunner = () => {
   useEffect(() => {
     if (isLoading || !timeEndsAt || delegatesToChildRunner) return undefined;
 
+    // Freeze the timer ONCE when we go offline, instead of repeatedly
+    // pushing `timeEndsAt` into the future on a 1s interval. The interval
+    // version caused a new state update (and a new `endsAt` prop for the
+    // child timer) every second for as long as the connection was down —
+    // which, combined with the child timer re-evaluating on every change,
+    // could snowball into a "Maximum update depth exceeded" (React error
+    // #185) render loop. A single freeze/resume pair is all that's needed
+    // to pause and correctly resume the countdown.
     if (!isOnline) {
       if (pausedRemainingRef.current == null) {
         pausedRemainingRef.current = Math.max(0, timeEndsAt - Date.now());
-      }
-      const interval = setInterval(() => {
         setTimeEndsAt(Date.now() + pausedRemainingRef.current);
-      }, 1000);
-      return () => clearInterval(interval);
+      }
+      return undefined;
     }
 
     if (pausedRemainingRef.current != null) {
@@ -683,6 +695,7 @@ const AssessmentRunner = () => {
           endsAt={timeEndsAt}
           loading={isLoading}
           onExpire={handleTimeExpire}
+            paused={!isOnline} 
         />
       }
       below={

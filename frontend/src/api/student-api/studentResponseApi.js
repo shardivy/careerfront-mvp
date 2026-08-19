@@ -1,11 +1,5 @@
 import axiosInstance from "../../axiosInstance";
 
-// Convert a numeric option index (0, 1, 2, 3...) to a letter (A, B, C, D...)
-const indexToOptionLetter = (index) => {
-  if (index === null || index === undefined) return null;
-  return String.fromCharCode(65 + Number(index));
-};
-
 // =====================================================
 // SAVE COMPLETE SUBSECTION RESPONSES
 // =====================================================
@@ -19,7 +13,20 @@ export const saveStudentResponsesApi = async ({
   const answers = responses.map((item) => ({
     question_id: item.question_id,
     selected_response_json: {
-      option_id: indexToOptionLetter(item.selected_response),
+      // item.selected_response is already the real backend option id —
+      // "A"/"B" for compare-larger/compare-smaller (from opt.id in the
+      // transformer), "Similar"/"Different" for string-match, "Odd"/"Even"
+      // for parity, "true"/"false" for month toggles — set directly by
+      // setAnswer()/toggleMonth() in RapidAssessmentRunner. Pass it
+      // through as-is.
+      //
+      // Do NOT re-derive it with something like
+      // String.fromCharCode(65 + Number(item.selected_response)) — that
+      // assumes selected_response is a raw numeric index, which it is
+      // not. Running that on a string like "A" or "Odd" produces NaN /
+      // garbage characters in option_id. This exact bug has been
+      // reintroduced once already — leave this as a straight pass-through.
+      option_id: item.selected_response ?? null,
     },
     is_answered: !!item.is_answered,
   }));

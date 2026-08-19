@@ -554,6 +554,7 @@ const ImageAssessmentRunner = () => {
               endsAt={timeEndsAt}
               loading={isLoading}
               onExpire={handleTimeExpire}
+                paused={!isOnline} 
             />
           }
         />
