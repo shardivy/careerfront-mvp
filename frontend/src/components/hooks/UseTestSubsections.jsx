@@ -34,21 +34,38 @@ const useAllSubsections = () => {
     error,
   } = useSelector((s) => s.studentSubsection);
 
+  // gradeId lives inside the examSessionData JSON blob written in
+  // ExamManagement.jsx's handleStartExam (sessionData.gradeId)
+  const gradeId = useMemo(() => {
+    try {
+      const stored = localStorage.getItem("examSessionData");
+      if (!stored) return null;
+      const parsed = JSON.parse(stored);
+      return parsed?.gradeId ?? null;
+    } catch (e) {
+      console.error("Failed to parse examSessionData for gradeId:", e);
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
-    dispatch(getStudentSubsections());
-  }, [dispatch]);
+    if (gradeId) {
+      dispatch(getStudentSubsections(gradeId));
+    } else {
+      console.warn("useAllSubsections: no gradeId found in examSessionData, skipping fetch");
+    }
+  }, [dispatch, gradeId]);
 
   useEffect(() => {
     console.log("useAllSubsections Data:", {
+      gradeId,
       subsectionsLength: subsections?.length,
       subsections: subsections,
       loading,
       error,
     });
-  }, [subsections, loading, error]);
+  }, [subsections, loading, error, gradeId]);
 
-  // Group the flat list by local section code, sort each group by
-  // subsection_display_order.
   const bySection = useMemo(() => {
     if (!Array.isArray(subsections)) {
       console.warn("useAllSubsections: subsections is not an array:", subsections);
@@ -168,11 +185,24 @@ export const UseTestSubsection = (testType, subsectionCode) => {
     error: questionsError,
   } = useSelector((s) => s.studentQuestion);
 
-  useEffect(() => {
-    if (localSection?.dbId) {
-      dispatch(getStudentQuestions(localSection.dbId));
+ useEffect(() => {
+  if (localSection?.dbId) {
+    const gradeId = (() => {
+      try {
+        const stored = localStorage.getItem("examSessionData");
+        return stored ? JSON.parse(stored)?.gradeId : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    if (gradeId) {
+      dispatch(getStudentQuestions({ gradeId, subsectionId: localSection.dbId }));
+    } else {
+      console.warn("UseTestSubsection: no gradeId found, skipping questions fetch");
     }
-  }, [dispatch, localSection?.dbId]);
+  }
+}, [dispatch, localSection?.dbId]);
 
   // Only trust apiQuestions once they were fetched FOR this subsection —
   // otherwise, while switching tabs, we'd briefly show the previous
@@ -211,11 +241,18 @@ export const UseTestSubsection = (testType, subsectionCode) => {
  * becomes a card, in SECTION_ORDER's order.
  */
 export const UseTestSections = () => {
-  const { loading, error } = useAllSubsections();
+  const { bySection, loading, error } = useAllSubsections();
 
   const sections = useMemo(
-    () => SECTION_ORDER.map((code) => ({ code, name: getSectionName(code) })),
-    []
+    () =>
+      SECTION_ORDER
+        .filter((code) => (bySection[code] || []).length > 0)
+        .map((code) => ({
+          code,
+          name: getSectionName(code),
+          subsectionCodes: bySection[code].map((subsection) => subsection.subsection_code),
+        })),
+    [bySection]
   );
 
   return { sections, loading, error };

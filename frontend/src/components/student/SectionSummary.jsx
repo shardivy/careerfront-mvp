@@ -456,7 +456,10 @@ const TEST_LABELS = {
   personality: "Personality Test",
   interest: "Interest Assessment",
 };
-const labelForTestType = (t) => TEST_LABELS[t] || (t ? t.charAt(0).toUpperCase() + t.slice(1) : "Next Test");
+const labelForTestType = (t) =>
+  SECTION_META[t]?.name ||
+  TEST_LABELS[t] ||
+  (t ? t.charAt(0).toUpperCase() + t.slice(1) : "Next Test");
 
 const SectionSummary = () => {
   const { testType = "aptitude", sectionId } = useParams();
@@ -491,6 +494,7 @@ const SectionSummary = () => {
   // =================================================
   const explicitTotalQuestions = location.state?.totalQuestions;
   const explicitAnsweredCount = location.state?.answeredCount;
+    const explicitTimeUsedSeconds = location.state?.timeUsedSeconds;  
   const remainingQuestions = location.state?.remainingQuestions;
   const subsectionStatus = location.state?.subsectionStatus;
 
@@ -589,7 +593,9 @@ const SectionSummary = () => {
   // counting responseRows (index-keyed) if the runner didn't pass an
   // explicit count.
   const answeredCount = explicitAnsweredCount ?? responseRows.filter((r) => r.answered).length;
-  const totalSeconds = responseRows.reduce((sum, r) => sum + (r.answered ? r.seconds : 0), 0);
+ const totalSeconds =
+    explicitTimeUsedSeconds ??
+    responseRows.reduce((sum, r) => sum + (r.answered ? r.seconds : 0), 0);
   const avgSeconds = answeredCount ? Math.round(totalSeconds / answeredCount) : 0;
   const maxSeconds = Math.max(...responseRows.map((r) => r.seconds), 1);
 
@@ -609,7 +615,8 @@ const SectionSummary = () => {
 
   const handleContinue = () => {
     if (nextSectionId) {
-      navigate(`/test/${testType}/${nextSectionId}/start`);
+      // Let the student choose a remaining subsection from the instructions.
+      navigate(`/test/${testType}`);
       return;
     }
 
@@ -823,7 +830,7 @@ const SectionSummary = () => {
                 <div>
                   <p className="text-sm sm:text-base font-bold" style={{ color: theme.colors.text.heading }}>
                     {nextSection
-                      ? `Next: ${nextSection.title}`
+                      ? "Choose your next section"
                       : allTestsDone
                         ? "All tests complete"
                         : `${labelForTestType(testType)} complete`}
@@ -843,7 +850,7 @@ const SectionSummary = () => {
                 className={`w-full sm:w-auto flex items-center justify-center gap-2 ${theme.radius.md} font-semibold px-6 py-3 transition-colors ${theme.button.primary} ${theme.shadow.button}`}
               >
                 {nextSection
-                  ? "Continue Assessment"
+                  ? "Choose Section"
                   : allTestsDone
                     ? "View Results"
                     : `Start ${nextTestLabel || "Next Test"}`}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Flag, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { Flag, ChevronLeft, ChevronRight, Check, FileQuestion } from "lucide-react";
 import theme from "../../theme/theme";
 import { UseTestSubsection } from "../hooks/UseTestSubsections";
 import {
@@ -15,11 +15,13 @@ import { toast as toastManager, useToastManager } from "@/components/ui/toast";
 import StudentLayout, { TopBar, SectionTimer } from "../layouts/StudentLayout";
 import { useStudentQuestions } from "../hooks/useStudentQuestions";
 import { saveStudentResponsesApi } from "../../api/student-api/studentResponseApi";
+import { getBackendOptionId } from "../../utils/questionOptionIds";
 
 import {
   getAttemptId,
   getStudentId,
   getSubsectionResponses,
+  includeUnansweredQuestionResponses,
   saveQuestionResponse,
   saveQuestionMarkStatus,
   clearSubsectionResponses,
@@ -95,12 +97,15 @@ const ImageAssessmentRunner = () => {
   // Once we know the section's time limit, establish timeEndsAt exactly
   // ONCE — either from what was restored above, or freshly computed as
   // Date.now() + limit if this section has never been started before.
+  // Skipped entirely when there are no questions to answer — no point
+  // starting a countdown for a subsection with nothing in it.
   useEffect(() => {
     if (isLoading) return;
+    if (questions.length === 0) return;
     if (!Number.isFinite(section?.timeLimitSeconds)) return;
     if (timeEndsAt) return;
     setTimeEndsAt(Date.now() + section.timeLimitSeconds * 1000);
-  }, [isLoading, section?.timeLimitSeconds, timeEndsAt]);
+  }, [isLoading, section?.timeLimitSeconds, timeEndsAt, questions.length]);
 
   // Toast whenever connectivity flips — skip the very first check on
   // mount so we don't fire a spurious "Back online" toast immediately.
@@ -227,7 +232,7 @@ const ImageAssessmentRunner = () => {
       attemptId,
       subsectionId,
       questionId: question.id,
-      selectedResponse: optionIndex,
+      selectedResponse: getBackendOptionId(question, optionIndex),
       isMarked,
     });
 
@@ -235,7 +240,7 @@ const ImageAssessmentRunner = () => {
       attemptId,
       subsectionId,
       questionId: question.id,
-      selectedResponse: optionIndex,
+      selectedResponse: getBackendOptionId(question, optionIndex),
       isMarked,
     });
   };
@@ -321,161 +326,172 @@ const ImageAssessmentRunner = () => {
   };
 
   const handleSubmit = async (autoSubmitted = false) => {
- if (isSubmitting || submittedRef.current) {
-  return;
-}
-
-  console.log("========== SUBMIT BUTTON CLICKED ==========");
-
-  // ============================================
-  // REQUIRE ALL QUESTIONS ANSWERED
-  //
-  // Skipped when the timer forces an auto-submit — a student who ran
-  // out of time should still have whatever they answered sent, not
-  // get stuck unable to submit at all.
-  // ============================================
-
-  if (!autoSubmitted) {
-    const firstUnansweredIndex = questions.findIndex(
-      (_, i) => answers[i] === undefined
-    );
-
-    if (firstUnansweredIndex !== -1) {
-      setSubmitError(
-        `Please answer all questions before submitting. Question ${firstUnansweredIndex + 1} is unanswered.`
-      );
-      jumpToQuestion(firstUnansweredIndex);
+    if (isSubmitting || submittedRef.current) {
       return;
     }
-  }
 
-  const attemptId = getAttemptId();
-  const studentId = getStudentId();
-  const subsectionId = section?.dbId;
-
-  console.log("attemptId:", attemptId);
-  console.log("studentId:", studentId);
-  console.log("subsectionId:", subsectionId);
-
-  // ============================================
-  // VALIDATION
-  // ============================================
-
-  if (!attemptId) {
-    console.error("attempt_id not found in localStorage");
-    setSubmitError("Attempt ID not found.");
-    return;
-  }
-
-  if (!studentId) {
-    console.error("student_id not found in localStorage");
-    setSubmitError("Student ID not found.");
-    return;
-  }
-
-  if (!subsectionId) {
-    console.error(
-      "subsection_id not found. section:",
-      section
-    );
-    setSubmitError("Subsection ID not found.");
-    return;
-  }
-
-  try {
-    setIsSubmitting(true);
-    setSubmitError(null);
+    console.log("========== SUBMIT BUTTON CLICKED ==========");
 
     // ============================================
-    // GET LOCAL STORAGE RESPONSES
+    // REQUIRE ALL QUESTIONS ANSWERED
+    //
+    // Skipped when the timer forces an auto-submit — a student who ran
+    // out of time should still have whatever they answered sent, not
+    // get stuck unable to submit at all.
     // ============================================
 
-    const responses = getSubsectionResponses(
-      attemptId,
-      subsectionId
-    );
+    if (!autoSubmitted) {
+      const firstUnansweredIndex = questions.findIndex(
+        (_, i) => answers[i] === undefined
+      );
 
-    console.log(
-      "Responses being sent to API:",
-      responses
-    );
-
-    // ============================================
-    // CALL BACKEND API
-    // ============================================
-
-    const result = await saveStudentResponsesApi({
-      attemptId,
-      studentId,
-      subsectionId,
-      responses,
-    });
-
-    console.log(
-      "========== SAVE RESPONSE API SUCCESS =========="
-    );
-
-    console.log("API result:", result);
-
-    // ============================================
-    // ONLY CLEAR LOCAL DATA AFTER API SUCCESS
-    // ============================================
-
-    clearSubsectionResponses(
-      attemptId,
-      subsectionId
-    );
-
-    clearAutosave(
-      testType,
-      sectionId
-    );
-
-    submittedRef.current = true;
-
-    // ============================================
-    // GO TO SUMMARY
-    // ============================================
-
-    navigate(
-      `/test/${testType}/${sectionId}/summary`,
-      {
-        state: {
-          answers,
-          totalQuestions: questions.length,
-          autoSubmitted,
-          submittedResponse: result,
-        },
+      if (firstUnansweredIndex !== -1) {
+        setSubmitError(
+          `Please answer all questions before submitting. Question ${firstUnansweredIndex + 1} is unanswered.`
+        );
+        jumpToQuestion(firstUnansweredIndex);
+        return;
       }
-    );
+    }
 
-  } catch (error) {
-    console.error(
-      "========== SAVE RESPONSE API FAILED =========="
-    );
+    const attemptId = getAttemptId();
+    const studentId = getStudentId();
+    const subsectionId = section?.dbId;
 
-    console.error("Full error:", error);
+    console.log("attemptId:", attemptId);
+    console.log("studentId:", studentId);
+    console.log("subsectionId:", subsectionId);
 
-    console.error(
-      "API response:",
-      error?.response?.data
-    );
+    // ============================================
+    // VALIDATION
+    // ============================================
 
-    console.error(
-      "HTTP status:",
-      error?.response?.status
-    );
+    if (!attemptId) {
+      console.error("attempt_id not found in localStorage");
+      setSubmitError("Attempt ID not found.");
+      return;
+    }
 
-    setSubmitError(
-      error?.response?.data?.message ||
-      error?.response?.data?.detail ||
-      "Failed to save responses. Please try again."
-    );
+    if (!studentId) {
+      console.error("student_id not found in localStorage");
+      setSubmitError("Student ID not found.");
+      return;
+    }
 
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+    if (!subsectionId) {
+      console.error(
+        "subsection_id not found. section:",
+        section
+      );
+      setSubmitError("Subsection ID not found.");
+      return;
+    }
+
+    const secondsRemaining = Number.isFinite(timeEndsAt)
+      ? Math.max(0, Math.round((timeEndsAt - Date.now()) / 1000))
+      : 0;
+    const timeUsedSeconds = Number.isFinite(section?.timeLimitSeconds)
+      ? Math.max(0, section.timeLimitSeconds - secondsRemaining)
+      : undefined;
+
+    try {
+      setIsSubmitting(true);
+      setSubmitError(null);
+
+      // ============================================
+      // GET LOCAL STORAGE RESPONSES
+      // ============================================
+
+      const savedResponses = getSubsectionResponses(
+        attemptId,
+        subsectionId
+      );
+      const responses = autoSubmitted
+        ? includeUnansweredQuestionResponses(questions, savedResponses)
+        : savedResponses;
+
+      console.log(
+        "Responses being sent to API:",
+        responses
+      );
+
+      // ============================================
+      // CALL BACKEND API
+      // ============================================
+
+      const result = await saveStudentResponsesApi({
+        attemptId,
+        studentId,
+        subsectionId,
+        responses,
+      });
+
+      console.log(
+        "========== SAVE RESPONSE API SUCCESS =========="
+      );
+
+      console.log("API result:", result);
+
+      // ============================================
+      // ONLY CLEAR LOCAL DATA AFTER API SUCCESS
+      // ============================================
+
+      clearSubsectionResponses(
+        attemptId,
+        subsectionId
+      );
+
+      clearAutosave(
+        testType,
+        sectionId
+      );
+
+      submittedRef.current = true;
+
+      // ============================================
+      // GO TO SUMMARY
+      // ============================================
+
+      navigate(
+        `/test/${testType}/${sectionId}/summary`,
+        {
+          state: {
+            answers,
+            totalQuestions: questions.length,
+            timeUsedSeconds,
+            autoSubmitted,
+            submittedResponse: result,
+          },
+        }
+      );
+
+    } catch (error) {
+      console.error(
+        "========== SAVE RESPONSE API FAILED =========="
+      );
+
+      console.error("Full error:", error);
+
+      console.error(
+        "API response:",
+        error?.response?.data
+      );
+
+      console.error(
+        "HTTP status:",
+        error?.response?.status
+      );
+
+      setSubmitError(
+        error?.response?.data?.message ||
+        error?.response?.data?.detail ||
+        "Failed to save responses. Please try again."
+      );
+
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // Fired once by SectionTimer when the countdown hits zero.
   const handleTimeExpire = () => {
@@ -488,32 +504,32 @@ const ImageAssessmentRunner = () => {
     scrollTo({ top: 0, behavior: "smooth" });
   };
 
- const handleNextPage = () => {
-  if (isSubmitting) {
-    return;
-  }
+  const handleNextPage = () => {
+    if (isSubmitting) {
+      return;
+    }
 
-  // ============================================
-  // LAST PAGE = SUBMIT
-  // ============================================
+    // ============================================
+    // LAST PAGE = SUBMIT
+    // ============================================
 
-  if (pageIndex >= totalPages - 1) {
-    console.log("Last page -> submitting responses");
+    if (pageIndex >= totalPages - 1) {
+      console.log("Last page -> submitting responses");
 
-    handleSubmit(false);
+      handleSubmit(false);
 
-    return;
-  }
+      return;
+    }
 
-  // ============================================
-  // NEXT PAGE
-  // ============================================
+    // ============================================
+    // NEXT PAGE
+    // ============================================
 
-  goToPage(pageIndex + 1);
-};
+    goToPage(pageIndex + 1);
+  };
 
 
-  
+
 
   const getNavState = (qIndex) => {
     if (marked.has(qIndex)) return "marked";
@@ -538,6 +554,51 @@ const ImageAssessmentRunner = () => {
     pageStart + QUESTIONS_PER_PAGE,
   );
 
+  // Top bar used ONLY on the empty-state screen below — no `right`
+  // slot, so the timer never renders (and, combined with the
+  // timer-start guard above, never starts) when there are no
+  // questions to answer for this subsection.
+  const emptyStateTopBar = (
+    <TopBar
+      maxWidth="max-w-6xl"
+      sticky
+      center={
+        <span className="text-base sm:text-lg font-medium">
+          {section?.title}
+        </span>
+      }
+    />
+  );
+
+  // The questions endpoint can validly return an empty list. Show a
+  // dedicated "not found" screen instead of the paged question layout
+  // in that case, with no timer running behind it.
+  if (!isLoading && questions.length === 0) {
+    return (
+      <StudentLayout topBar={emptyStateTopBar}>
+        {!isOnline && <OfflineBanner />}
+        <main className="flex-1 flex items-center justify-center px-4 sm:px-6 py-12">
+          <div
+            className={`w-full max-w-md ${theme.radius.xl} bg-white border border-slate-100 px-6 py-10 text-center ${theme.shadow.card}`}
+          >
+            <span
+              className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full"
+              style={{ backgroundColor: "#EFF6FF" }}
+            >
+              <FileQuestion className="h-7 w-7" style={{ color: theme.colors.primary }} />
+            </span>
+            <h1 className="text-xl font-bold" style={{ color: theme.colors.text.heading }}>
+              Question data not found
+            </h1>
+            <p className="mt-2 text-sm" style={{ color: theme.colors.text.light }}>
+              There are no questions available for this section right now.
+            </p>
+          </div>
+        </main>
+      </StudentLayout>
+    );
+  }
+
   return (
     <StudentLayout
       topBar={
@@ -554,7 +615,7 @@ const ImageAssessmentRunner = () => {
               endsAt={timeEndsAt}
               loading={isLoading}
               onExpire={handleTimeExpire}
-                paused={!isOnline} 
+              paused={!isOnline}
             />
           }
         />
@@ -564,26 +625,26 @@ const ImageAssessmentRunner = () => {
 
       <main className="flex-1 px-4 sm:px-6 py-6 sm:py-10">
         {submitError && (
-    <div
-      className="max-w-6xl mx-auto mb-5 px-4 py-3 rounded-lg border"
-      style={{
-        color: "#B91C1C",
-        backgroundColor: "#FEF2F2",
-        borderColor: "#FECACA",
-      }}
-    >
-      <div className="flex items-center justify-between gap-4">
-        <span>{submitError}</span>
-        <button
-          type="button"
-          onClick={() => setSubmitError(null)}
-          className="font-semibold"
-        >
-          ×
-        </button>
-      </div>
-    </div>
-  )}
+          <div
+            className="max-w-6xl mx-auto mb-5 px-4 py-3 rounded-lg border"
+            style={{
+              color: "#B91C1C",
+              backgroundColor: "#FEF2F2",
+              borderColor: "#FECACA",
+            }}
+          >
+            <div className="flex items-center justify-between gap-4">
+              <span>{submitError}</span>
+              <button
+                type="button"
+                onClick={() => setSubmitError(null)}
+                className="font-semibold"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
         {sectionError && !isLoading && (
           <p
             className="max-w-6xl mx-auto text-sm mb-4"
@@ -786,59 +847,59 @@ const ImageAssessmentRunner = () => {
             <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-4 gap-2.5 mb-5">
               {isLoading
                 ? Array.from({ length: 12 }).map((_, i) => (
-                    <Skeleton key={i} className="aspect-square rounded-lg" />
-                  ))
+                  <Skeleton key={i} className="aspect-square rounded-lg" />
+                ))
                 : questions.map((_, i) => {
-                    const state = getNavState(i);
-                    const c = navColors[state];
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => jumpToQuestion(i)}
-                        className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
-                        style={{
-                          backgroundColor: c.bg,
-                          color: c.color,
-                          borderColor: c.border,
-                        }}
-                      >
-                        {i + 1}
-                      </button>
-                    );
-                  })}
+                  const state = getNavState(i);
+                  const c = navColors[state];
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => jumpToQuestion(i)}
+                      className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
+                      style={{
+                        backgroundColor: c.bg,
+                        color: c.color,
+                        borderColor: c.border,
+                      }}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
             </div>
 
             <div className="flex flex-col gap-3">
               {isLoading
                 ? [1, 2, 3].map((i) => (
-                    <div key={i} className="flex items-center gap-2.5">
-                      <Skeleton className="w-3.5 h-3.5 rounded-full" />
-                      <Skeleton className="h-3 w-24" />
-                    </div>
-                  ))
+                  <div key={i} className="flex items-center gap-2.5">
+                    <Skeleton className="w-3.5 h-3.5 rounded-full" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                ))
                 : [
-                    { label: "Answered", color: "#ECFDF5", border: "#34D399" },
-                    // { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
-                    {
-                      label: "Unvisited",
-                      color: "#FFFFFF",
-                      border: theme.colors.border,
-                    },
-                  ].map(({ label, color, border }) => (
-                    <div key={label} className="flex items-center gap-2.5">
-                      <span
-                        className="w-4 h-4 rounded-full border"
-                        style={{ backgroundColor: color, borderColor: border }}
-                      />
-                      <span
-                        className="text-sm"
-                        style={{ color: theme.colors.text.body }}
-                      >
-                        {label}
-                      </span>
-                    </div>
-                  ))}
+                  { label: "Answered", color: "#ECFDF5", border: "#34D399" },
+                  // { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
+                  {
+                    label: "Unvisited",
+                    color: "#FFFFFF",
+                    border: theme.colors.border,
+                  },
+                ].map(({ label, color, border }) => (
+                  <div key={label} className="flex items-center gap-2.5">
+                    <span
+                      className="w-4 h-4 rounded-full border"
+                      style={{ backgroundColor: color, borderColor: border }}
+                    />
+                    <span
+                      className="text-sm"
+                      style={{ color: theme.colors.text.body }}
+                    >
+                      {label}
+                    </span>
+                  </div>
+                ))}
             </div>
           </div>
         </div>

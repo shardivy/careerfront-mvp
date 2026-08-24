@@ -1,4 +1,4 @@
-import React, {useState} from "react";
+import React, { useState } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import "./App.css";
@@ -54,46 +54,46 @@ const App = () => {
   return (
     <BrowserRouter>
       <Toaster position="bottom-left">
-      {showServerError && (
-        <ServerError
+        {showServerError && (
+          <ServerError
             onRetry={() => {
-                setShowServerError(false);
-                window.location.reload();
+              setShowServerError(false);
+              window.location.reload();
             }}
-        />
-    )}
-      <Routes>
+          />
+        )}
+        <Routes>
 
-        {/* Authentication */}
-        {/* <Route path="/" element={<Register />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/verify-otp" element={<VerifyOtp />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} /> */}
+          {/* Authentication */}
+          {/* <Route path="/" element={<Register />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/verify-otp" element={<VerifyOtp />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} /> */}
 
-        {/* --------- Student Routes ----------- */}
-        <Route path="/" element={<Default />} />
-        <Route path="/test-selection" element={<TestSelection />} />
-        {/* <Route path="/test/aptitude" element={<AptitudeTest />} /> */}
-        <Route path="/test/:testType/:sectionId/start" element={<AssessmentRunner />}/>
-        <Route
-          path="/test/:testType/:sectionId/summary"
-          element={<SectionSummary />}
-        />
-        <Route path="/test/reports" element={<ResultsReady />} />
-        <Route path="/test/:testType" element={<TestInstructions />} />
-
-
+          {/* --------- Student Routes ----------- */}
+          <Route path="/" element={<Default />} />
+          <Route path="/test-selection" element={<TestSelection />} />
+          {/* <Route path="/test/aptitude" element={<AptitudeTest />} /> */}
+          <Route path="/test/:testType/:sectionId/start" element={<AssessmentRunner />} />
+          <Route
+            path="/test/:testType/:sectionId/summary"
+            element={<SectionSummary />}
+          />
+          <Route path="/test/reports" element={<ResultsReady />} />
+          <Route path="/test/:testType" element={<TestInstructions />} />
 
 
-        {/* Create assessment page without the shared admin layout */}
-        {/* <Route path="/s-admin/create-assessment" element={<CreateAssessment />} />
+
+
+          {/* Create assessment page without the shared admin layout */}
+          {/* <Route path="/s-admin/create-assessment" element={<CreateAssessment />} />
         <Route path="/s-admin/create-question" element={<CreateQuestion />} />
         <Route path="/s-admin/edit-question/:id" element={<CreateQuestion />} />
         <Route path="/s-admin/question-library/:questionId" element={<ViewQuestion />} /> */}
 
-        {/* ------------- Admin Routes --------------*/}
-        {/* <Route path="/s-admin" element={<AdminLayout />}>
+          {/* ------------- Admin Routes --------------*/}
+          {/* <Route path="/s-admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
           <Route path="dashboard" element={<AdminDashboard />} />
           <Route path="assessment-overview" element={<AssessmentOverview />} />
@@ -106,8 +106,8 @@ const App = () => {
      
         </Route> */}
 
-        {/* ------------- Enterprise Routes --------------*/}
-        {/* <Route path="/enterprise" element={<EnterpriseLayout />}>
+          {/* ------------- Enterprise Routes --------------*/}
+          {/* <Route path="/enterprise" element={<EnterpriseLayout />}>
           <Route index element={<EnterpriseDashboard />} />
           <Route path="dashboard" element={<EnterpriseDashboard />} />
           <Route path="students" element={<Students />} />
@@ -116,10 +116,10 @@ const App = () => {
           <Route path="analytics" element={<Analytics />} />
         </Route> */}
 
-        {/* 404 */}
-        <Route path="*" element={<NotFound />} />
+          {/* 404 */}
+          <Route path="*" element={<NotFound />} />
 
-      </Routes>
+        </Routes>
 
       </Toaster>
     </BrowserRouter>

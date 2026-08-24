@@ -2,6 +2,20 @@ import { useEffect } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { getStudentQuestions } from "../../slices/student-slices/studentQuestionSlice";
 
+// Reads gradeId out of the examSessionData blob written in
+// ExamManagement.jsx's handleStartExam (sessionData.gradeId)
+const getGradeIdFromStorage = () => {
+  try {
+    const stored = localStorage.getItem("examSessionData");
+    if (!stored) return null;
+    const parsed = JSON.parse(stored);
+    return parsed?.gradeId ?? null;
+  } catch (e) {
+    console.error("useStudentQuestions: failed to parse examSessionData", e);
+    return null;
+  }
+};
+
 /**
  * Hook to fetch and manage questions for a specific subsection.
  * Fetches from the Redux store if already loaded, otherwise triggers API call.
@@ -37,8 +51,18 @@ export const useStudentQuestions = (subsectionId) => {
   // Fetch questions when subsectionId changes
   useEffect(() => {
     if (subsectionId && subsectionId !== storedSubsectionId) {
-      console.log("useStudentQuestions: Fetching for subsectionId:", subsectionId);
-      dispatch(getStudentQuestions(subsectionId));
+      const gradeId = getGradeIdFromStorage();
+
+      if (!gradeId) {
+        console.warn(
+          "useStudentQuestions: no gradeId found in examSessionData, skipping fetch for subsectionId:",
+          subsectionId
+        );
+        return;
+      }
+
+      // console.log("useStudentQuestions: Fetching for", { gradeId, subsectionId });
+      dispatch(getStudentQuestions({ gradeId, subsectionId }));
     }
   }, [subsectionId, storedSubsectionId, dispatch]);
 

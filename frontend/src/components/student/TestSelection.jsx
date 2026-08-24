@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Check, FileText } from "lucide-react";
 import theme from "../../theme/theme";
-import { SECTION_META, DEFAULT_SECTION_ICON, SUBSECTION_TO_SECTION } from "./Testdata";
+import { SECTION_META, DEFAULT_SECTION_ICON } from "./Testdata";
 import { isTestComplete } from "./Testprogress";
 import { UseTestSections } from "../hooks/UseTestSubsections";
 import Skeleton from "../ui/skeleton";
@@ -20,14 +20,6 @@ const gridColsClass = (count) => {
 // Reverse of SUBSECTION_TO_SECTION: section code -> every subsection
 // code that belongs to it. Built once, not per-render — SUBSECTION_TO_SECTION
 // is a static import, not derived from props/state.
-const SECTION_TO_SUBSECTIONS = Object.entries(SUBSECTION_TO_SECTION).reduce(
-  (acc, [subsectionCode, sectionCode]) => {
-    (acc[sectionCode] ||= []).push(subsectionCode);
-    return acc;
-  },
-  {}
-);
-
 const TestSelection = ({ userName = "" }) => {
   const navigate = useNavigate();
 
@@ -44,41 +36,41 @@ const TestSelection = ({ userName = "" }) => {
   const [progressVersion, setProgressVersion] = useState(0);
   const [examSession, setExamSession] = useState(null);
 
-useEffect(() => {
-  const urlParams = new URLSearchParams(window.location.search);
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
 
-  const persistFlatKeys = (data) => {
-    if (data?.attemptId) localStorage.setItem("attempt_id", data.attemptId);
-    if (data?.studentId) localStorage.setItem("student_id", data.studentId);
-  };
+    const persistFlatKeys = (data) => {
+      if (data?.attemptId) localStorage.setItem("attempt_id", data.attemptId);
+      if (data?.studentId) localStorage.setItem("student_id", data.studentId);
+    };
 
-  if (urlParams.get("attemptId")) {
-    const fromUrl = Object.fromEntries(urlParams.entries());
-    setExamSession(fromUrl);
+    if (urlParams.get("attemptId")) {
+      const fromUrl = Object.fromEntries(urlParams.entries());
+      setExamSession(fromUrl);
+      try {
+        localStorage.setItem("examSessionData", JSON.stringify(fromUrl));
+        persistFlatKeys(fromUrl);
+      } catch (e) {
+        console.error("Failed to persist examSessionData:", e);
+      }
+      window.history.replaceState({}, "", window.location.pathname);
+      return;
+    }
+
     try {
-      localStorage.setItem("examSessionData", JSON.stringify(fromUrl));
-      persistFlatKeys(fromUrl);
+      const raw = localStorage.getItem("examSessionData");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        setExamSession(parsed);
+        persistFlatKeys(parsed);
+      }
     } catch (e) {
-      console.error("Failed to persist examSessionData:", e);
+      console.error("Failed to parse examSessionData", e);
     }
-    window.history.replaceState({}, "", window.location.pathname);
-    return;
-  }
+  }, []);
 
-  try {
-    const raw = localStorage.getItem("examSessionData");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      setExamSession(parsed);
-      persistFlatKeys(parsed);
-    }
-  } catch (e) {
-    console.error("Failed to parse examSessionData", e);
-  }
-}, []);
-
-console.log("Exam session data:", examSession);
-console.log("Attempt ID from localStorage:", localStorage.getItem("attempt_id"));
+  console.log("Exam session data:", examSession);
+  console.log("Attempt ID from localStorage:", localStorage.getItem("attempt_id"));
 
 
 
@@ -124,9 +116,8 @@ console.log("Attempt ID from localStorage:", localStorage.getItem("attempt_id"))
   // re-render above — so it stays in sync as the student progresses.
   const tests = useMemo(
     () =>
-      sections.map(({ code, name }) => {
+      sections.map(({ code, name, subsectionCodes }) => {
         const meta = SECTION_META[code] || {};
-        const subsectionCodes = SECTION_TO_SUBSECTIONS[code] || [];
         const completed =
           subsectionCodes.length > 0 && isTestComplete(code, subsectionCodes);
         return {

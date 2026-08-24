@@ -53,13 +53,17 @@ const TestInstructions = () => {
   // Default the active tab once tabs load, and keep it valid if the list changes.
   useEffect(() => {
     if (tabs.length === 0) return;
-    
-    // Set to first tab if no activeId is set yet
+
+    const firstIncompleteTab = tabs.find(
+      (tab) => !isSectionComplete(testType, tab.id)
+    );
+
+    // Returning from a completed section should open an unfinished one.
     if (!activeId) {
-      setActiveId(tabs[0].id);
+      setActiveId((firstIncompleteTab || tabs[0]).id);
       return;
     }
-    
+
     // If current activeId is not in the new tabs list, reset to first tab
     if (!tabs.some((t) => t.id === activeId)) {
       setActiveId(tabs[0].id);
@@ -151,34 +155,34 @@ const TestInstructions = () => {
               {isLoading
                 ? [1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-28 rounded-md" />)
                 : tabs.map((tab) => {
-                    const isActive = tab.id === activeId;
-                    const isDone = isSectionComplete(testType, tab.id);
-                    const Icon = tab.icon;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => setActiveId(tab.id)}
-                        className={`relative flex items-center gap-2 px-4 sm:px-5 lg:px-4 py-2.5 sm:py-3 lg:py-2 text-sm sm:text-base lg:text-sm font-medium ${theme.radius.md} transition-colors whitespace-nowrap`}
-                        style={{
-                          backgroundColor: isActive ? theme.colors.primary : "#FFFFFF",
-                          color: isActive ? theme.colors.text.white : theme.colors.text.body,
-                          border: `1px solid ${isActive ? theme.colors.primary : theme.colors.border}`,
-                        }}
-                      >
-                        <Icon className="w-4 h-4" />
-                        {tab.title}
-                        {isDone && (
-                          <span
-                            className={`absolute -top-1.5 -right-1.5 w-4 h-4 ${theme.radius.full} flex items-center justify-center border-2 border-white`}
-                            style={{ backgroundColor: "#16A34A" }}
-                          >
-                            <Check className="w-2.5 h-2.5" style={{ color: "#FFFFFF" }} strokeWidth={3} />
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
+                  const isActive = tab.id === activeId;
+                  const isDone = isSectionComplete(testType, tab.id);
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveId(tab.id)}
+                      className={`relative flex items-center gap-2 px-4 sm:px-5 lg:px-4 py-2.5 sm:py-3 lg:py-2 text-sm sm:text-base lg:text-sm font-medium ${theme.radius.md} transition-colors whitespace-nowrap`}
+                      style={{
+                        backgroundColor: isActive ? theme.colors.primary : "#FFFFFF",
+                        color: isActive ? theme.colors.text.white : theme.colors.text.body,
+                        border: `1px solid ${isActive ? theme.colors.primary : theme.colors.border}`,
+                      }}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {tab.title}
+                      {isDone && (
+                        <span
+                          className={`absolute -top-1.5 -right-1.5 w-4 h-4 ${theme.radius.full} flex items-center justify-center border-2 border-white`}
+                          style={{ backgroundColor: "#16A34A" }}
+                        >
+                          <Check className="w-2.5 h-2.5" style={{ color: "#FFFFFF" }} strokeWidth={3} />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
             </div>
           )}
 
@@ -206,29 +210,29 @@ const TestInstructions = () => {
             <div className="grid grid-cols-3 border-b border-slate-100">
               {isLoading
                 ? [1, 2, 3].map((i) => (
-                    <div key={i} className="text-center py-4 sm:py-6 lg:py-3.5 px-2" style={{ borderLeft: i !== 1 ? `1px solid ${theme.colors.border}` : "none" }}>
-                      <Skeleton className="h-6 w-10 mx-auto mb-2" />
-                      <Skeleton className="h-3 w-14 mx-auto" />
-                    </div>
-                  ))
+                  <div key={i} className="text-center py-4 sm:py-6 lg:py-3.5 px-2" style={{ borderLeft: i !== 1 ? `1px solid ${theme.colors.border}` : "none" }}>
+                    <Skeleton className="h-6 w-10 mx-auto mb-2" />
+                    <Skeleton className="h-3 w-14 mx-auto" />
+                  </div>
+                ))
                 : [
-                    { label: "Questions", value: activeSection?.totalQuestions },
-                    { label: "Time Limit", value: activeSection?.timeLimit },
-                    { label: "Difficulty", value: activeSection?.difficulty },
-                  ].map(({ label, value }, i) => (
-                    <div
-                      key={label}
-                      className="text-center py-4 sm:py-6 lg:py-3.5 px-2"
-                      style={{ borderLeft: i !== 0 ? `1px solid ${theme.colors.border}` : "none" }}
-                    >
-                      <div className="text-xl sm:text-2xl lg:text-xl font-extrabold" style={{ color: theme.colors.text.heading }}>
-                        {value}
-                      </div>
-                      <div className="text-[10px] sm:text-xs lg:text-[11px] font-medium tracking-wide uppercase mt-1" style={{ color: theme.colors.text.light }}>
-                        {label}
-                      </div>
+                  { label: "Questions", value: activeSection?.totalQuestions },
+                  { label: "Time Limit", value: activeSection?.timeLimit },
+                  { label: "Difficulty", value: activeSection?.difficulty },
+                ].map(({ label, value }, i) => (
+                  <div
+                    key={label}
+                    className="text-center py-4 sm:py-6 lg:py-3.5 px-2"
+                    style={{ borderLeft: i !== 0 ? `1px solid ${theme.colors.border}` : "none" }}
+                  >
+                    <div className="text-xl sm:text-2xl lg:text-xl font-extrabold" style={{ color: theme.colors.text.heading }}>
+                      {value}
                     </div>
-                  ))}
+                    <div className="text-[10px] sm:text-xs lg:text-[11px] font-medium tracking-wide uppercase mt-1" style={{ color: theme.colors.text.light }}>
+                      {label}
+                    </div>
+                  </div>
+                ))}
             </div>
 
             {/* Instructions list */}
@@ -244,19 +248,19 @@ const TestInstructions = () => {
               <ul className="flex flex-col gap-3 sm:gap-4 lg:gap-2.5">
                 {isLoading
                   ? [1, 2, 3, 4].map((i) => (
-                      <li key={i} className="flex items-start gap-3">
-                        <Skeleton className="w-4 h-4 sm:w-5 sm:h-5 lg:w-4 lg:h-4 mt-0.5 rounded-full shrink-0" />
-                        <Skeleton className="h-4 flex-1" />
-                      </li>
-                    ))
+                    <li key={i} className="flex items-start gap-3">
+                      <Skeleton className="w-4 h-4 sm:w-5 sm:h-5 lg:w-4 lg:h-4 mt-0.5 rounded-full shrink-0" />
+                      <Skeleton className="h-4 flex-1" />
+                    </li>
+                  ))
                   : activeSection?.instructions?.map((line, i) => (
-                      <li key={i} className="flex items-start gap-3">
-                        <Check className="w-4 h-4 sm:w-5 sm:h-5 lg:w-4 lg:h-4 mt-0.5 shrink-0" style={{ color: theme.colors.primary }} />
-                        <span className="text-sm sm:text-base lg:text-sm" style={{ color: theme.colors.text.body }}>
-                          {line}
-                        </span>
-                      </li>
-                    ))}
+                    <li key={i} className="flex items-start gap-3">
+                      <Check className="w-4 h-4 sm:w-5 sm:h-5 lg:w-4 lg:h-4 mt-0.5 shrink-0" style={{ color: theme.colors.primary }} />
+                      <span className="text-sm sm:text-base lg:text-sm" style={{ color: theme.colors.text.body }}>
+                        {line}
+                      </span>
+                    </li>
+                  ))}
               </ul>
 
               {/* Warning box */}
