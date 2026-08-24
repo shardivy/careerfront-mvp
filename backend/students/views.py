@@ -1,23 +1,606 @@
 import uuid
 
 from django.shortcuts import render
+from django.conf import settings
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
+from django.contrib.auth.hashers import check_password
+from django.contrib.auth.hashers import make_password
+from datetime import timedelta
 
 from assessment.models import AssessmentStructure
 from question.models import Question
-from students.models import Student, StudentTestResponse
+from students.models import Student, StudentEmailOTP, StudentTestResponse
 from students.serializers import StudentSyncSerializer
+from students.utils import generate_student_code, send_student_otp_email
+
+class StudentRegisterAPIView(APIView):
+
+    @transaction.atomic
+    def post(self, request):
+
+        first_name = request.data.get("first_name")
+        last_name = request.data.get("last_name")
+        mobile = request.data.get("mobile")
+        grade_name = request.data.get("grade_name")
+
+        email = request.data.get("email")
+        password = request.data.get("password")
+        confirm_password = request.data.get("confirm_password")
+
+        # -----------------------------------------
+        # Validation
+        # -----------------------------------------
+
+        if not first_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "first_name is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if not last_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "last_name is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        if not mobile:
+            return Response(
+                {
+                    "success": False,
+                    "message": "mobile is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not grade_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "grade_name is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not email:
+            return Response(
+                {
+                    "success": False,
+                    "message": "email is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not password:
+            return Response(
+                {
+                    "success": False,
+                    "message": "password is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not confirm_password:
+            return Response(
+                {
+                    "success": False,
+                    "message": "confirm_password is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if password != confirm_password:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Password and confirm password do not match."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Check email already registered
+        # -----------------------------------------
+
+        if Student.objects.filter(
+            email=email
+        ).exists():
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Email is already registered."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Get grade from grade name
+        # -----------------------------------------
+
+        grade = AssessmentStructure.objects.filter(
+            grade_name=grade_name
+        ).values(
+            "grade_id",
+            "grade_name"
+        ).first()
+
+        if not grade:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Grade not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # -----------------------------------------
+        # Generate student code
+        # -----------------------------------------
+
+        student_code = generate_student_code()
+
+        # -----------------------------------------
+        # Create student
+        # -----------------------------------------
+
+        student = Student.objects.create(
+            global_student_id=uuid.uuid4(),
+            student_code=student_code,
+            first_name=first_name,
+            last_name=last_name,
+            grade_id=grade["grade_id"],
+            email=email,
+            mobile=mobile,
+            password=make_password(password),
+            is_email_verified=False,
+            status="ACTIVE"
+        )
+
+        # -----------------------------------------
+        # Fixed OTP
+        # -----------------------------------------
+
+        otp = settings.STUDENT_FIXED_OTP
+
+        expires_at = timezone.now() + timedelta(
+            minutes=10
+        )
+
+        # -----------------------------------------
+        # Save OTP
+        # -----------------------------------------
+
+        StudentEmailOTP.objects.create(
+            student=student,
+            otp=otp,
+            expires_at=expires_at
+        )
+
+        # -----------------------------------------
+        # Send OTP email
+        # -----------------------------------------
+
+        send_student_otp_email(
+            student_name=student.first_name,
+            student_email=student.email,
+            otp=otp
+        )
+
+        # -----------------------------------------
+        # Response
+        # -----------------------------------------
+
+        return Response(
+            {
+                "success": True,
+                "message": "Registration successful. OTP has been sent to your email.",
+                "student_id": student.id,
+                "student_code": student.student_code,
+                "email": student.email,
+                "mobile": student.mobile,
+                "grade": grade["grade_name"]
+            },
+            status=status.HTTP_201_CREATED
+        )       
+        
+        
+class StudentVerifyEmailAPIView(APIView):
+
+    @transaction.atomic
+    def post(self, request):
+
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+
+        # -----------------------------------------
+        # Validation
+        # -----------------------------------------
+
+        if not email:
+            return Response(
+                {
+                    "success": False,
+                    "message": "email is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not otp:
+            return Response(
+                {
+                    "success": False,
+                    "message": "OTP is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Find student by email
+        # -----------------------------------------
+
+        try:
+            student = Student.objects.get(
+                email=email
+            )
+
+        except Student.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Student with this email not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # -----------------------------------------
+        # Already verified
+        # -----------------------------------------
+
+        if student.is_email_verified:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Email is already verified."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Find OTP
+        # -----------------------------------------
+
+        otp_obj = StudentEmailOTP.objects.filter(
+            student=student,
+            otp=otp,
+            is_used=False
+        ).first()
+
+        if not otp_obj:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid OTP."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Check OTP expiry
+        # -----------------------------------------
+
+        if timezone.now() > otp_obj.expires_at:
+
+            otp_obj.is_used = True
+
+            otp_obj.save(
+                update_fields=["is_used"]
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "OTP has expired."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Verify email
+        # -----------------------------------------
+
+        student.is_email_verified = True
+
+        student.save(
+            update_fields=[
+                "is_email_verified",
+                "updated_at"
+            ]
+        )
+
+        # -----------------------------------------
+        # Mark OTP as used
+        # -----------------------------------------
+
+        otp_obj.is_used = True
+
+        otp_obj.save(
+            update_fields=["is_used"]
+        )
+
+        # -----------------------------------------
+        # Response
+        # -----------------------------------------
+
+        return Response(
+            {
+                "success": True,
+                "message": "Email verified successfully.",
+                "student_id": student.id,
+                "student_code": student.student_code,
+                "email": student.email
+            },
+            status=status.HTTP_200_OK
+        )
+        
+              
+class StudentLoginAPIView(APIView):
+
+    def post(self, request):
+
+        email = request.data.get("email")
+        password = request.data.get("password")
+
+        # -----------------------------------------
+        # Validation
+        # -----------------------------------------
+
+        if not email:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Email is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not password:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Password is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Find student by email
+        # -----------------------------------------
+
+        try:
+            student = Student.objects.get(
+                email=email
+            )
+
+        except Student.DoesNotExist:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid email or password."
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # -----------------------------------------
+        # Check account status
+        # -----------------------------------------
+
+        if student.status != "ACTIVE":
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Student account is inactive."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # -----------------------------------------
+        # Check email verification
+        # -----------------------------------------
+
+        if not student.is_email_verified:
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Please verify your email before login."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # -----------------------------------------
+        # Check password
+        # -----------------------------------------
+
+        if not check_password(
+            password,
+            student.password
+        ):
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Invalid email or password."
+                },
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # -----------------------------------------
+        # Get grade name
+        # -----------------------------------------
+
+        grade = AssessmentStructure.objects.filter(
+            grade_id=student.grade_id
+        ).values(
+            "grade_id",
+            "grade_name"
+        ).first()
+
+        if not grade:
+            return Response(
+                {
+                    "success": False,
+                    "message": "Grade not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # -----------------------------------------
+        # Login success
+        # -----------------------------------------
+
+        return Response(
+            {
+                "success": True,
+                "message": "Login successful.",
+                "student": {
+                    "id": student.id,
+                    "global_student_id": str(
+                        student.global_student_id
+                    ),
+                    "student_code": student.student_code,
+                    "first_name": student.first_name,
+                    "last_name": student.last_name,
+                    "email": student.email,
+                    "grade_name": student.study_class,
+                    "grade_name": grade["grade_name"],
+                    "section_name": student.section_name
+                }
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# class StudentSyncAPIView(APIView):
+
+#     def post(self, request):
+
+#         global_student_id = request.data.get("global_student_id")
+
+#         if not global_student_id:
+#             return Response(
+#                 {
+#                     "success": False,
+#                     "message": "global_student_id is required."
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         # -----------------------------------------
+#         # Check whether student already exists
+#         # -----------------------------------------
+
+#         student = Student.objects.filter(
+#             global_student_id=global_student_id
+#         ).first()
+
+#         # -----------------------------------------
+#         # Existing student
+#         # -----------------------------------------
+
+#         if student:
+
+#             serializer = StudentSyncSerializer(
+#                 student,
+#                 data=request.data,
+#                 partial=True
+#             )
+
+#             serializer.is_valid(raise_exception=True)
+#             serializer.save()
+
+#             return Response(
+#                 {
+#                     "success": True,
+#                     "message": "Student already exists. Student details updated.",
+#                     "student": {
+#                         "id": student.id,
+#                         "global_student_id": str(
+#                             student.global_student_id
+#                         ),
+#                         "student_code": student.student_code,
+#                         "first_name": student.first_name,
+#                         "last_name": student.last_name,
+#                     }
+#                 },
+#                 status=status.HTTP_200_OK
+#             )
+
+#         # -----------------------------------------
+#         # New student
+#         # -----------------------------------------
+
+#         serializer = StudentSyncSerializer(
+#             data=request.data
+#         )
+
+#         serializer.is_valid(raise_exception=True)
+
+#         student = serializer.save(
+#             student_code=self.generate_student_code()
+#         )
+
+#         return Response(
+#             {
+#                 "success": True,
+#                 "message": "Student created successfully.",
+#                 "student": {
+#                     "id": student.id,
+#                     "global_student_id": str(
+#                         student.global_student_id
+#                     ),
+#                     "student_code": student.student_code,
+#                     "first_name": student.first_name,
+#                     "last_name": student.last_name,
+#                 }
+#             },
+#             status=status.HTTP_201_CREATED
+#         )
+
+#     def generate_student_code(self):
+
+#         last_student = Student.objects.order_by("-id").first()
+
+#         if not last_student:
+#             next_number = 1
+#         else:
+#             next_number = last_student.id + 1
+
+#         return f"TMP{next_number:06d}"
 
 class StudentSyncAPIView(APIView):
 
     def post(self, request):
 
         global_student_id = request.data.get("global_student_id")
+        grade_name = request.data.get("grade_name")
+
+        # -----------------------------------------
+        # Validate required fields
+        # -----------------------------------------
 
         if not global_student_id:
             return Response(
@@ -27,6 +610,39 @@ class StudentSyncAPIView(APIView):
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        if not grade_name:
+            return Response(
+                {
+                    "success": False,
+                    "message": "grade_name is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------
+        # Find grade_id from AssessmentStructure
+        # -----------------------------------------
+
+        assessment_structure = (
+            AssessmentStructure.objects
+            .filter(
+                grade_name__iexact=grade_name,
+                status="ACTIVE"
+            )
+            .first()
+        )
+
+        if not assessment_structure:
+            return Response(
+                {
+                    "success": False,
+                    "message": f"Grade '{grade_name}' not found."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        grade_id = assessment_structure.grade_id
 
         # -----------------------------------------
         # Check whether student already exists
@@ -49,7 +665,10 @@ class StudentSyncAPIView(APIView):
             )
 
             serializer.is_valid(raise_exception=True)
-            serializer.save()
+
+            student = serializer.save(
+                grade_id=grade_id
+            )
 
             return Response(
                 {
@@ -63,6 +682,8 @@ class StudentSyncAPIView(APIView):
                         "student_code": student.student_code,
                         "first_name": student.first_name,
                         "last_name": student.last_name,
+                        "grade_id": student.grade_id,
+                        "grade_name": grade_name,
                     }
                 },
                 status=status.HTTP_200_OK
@@ -79,7 +700,8 @@ class StudentSyncAPIView(APIView):
         serializer.is_valid(raise_exception=True)
 
         student = serializer.save(
-            student_code=self.generate_student_code()
+            student_code=self.generate_student_code(),
+            grade_id=grade_id
         )
 
         return Response(
@@ -94,6 +716,8 @@ class StudentSyncAPIView(APIView):
                     "student_code": student.student_code,
                     "first_name": student.first_name,
                     "last_name": student.last_name,
+                    "grade_id": student.grade_id,
+                    "grade_name": grade_name,
                 }
             },
             status=status.HTTP_201_CREATED
@@ -109,6 +733,7 @@ class StudentSyncAPIView(APIView):
             next_number = last_student.id + 1
 
         return f"TMP{next_number:06d}"
+
     
 class StudentTestResponseAPIView(APIView):
     """

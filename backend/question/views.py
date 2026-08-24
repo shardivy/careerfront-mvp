@@ -246,10 +246,20 @@ class BulkQuestionCreateAPIView(APIView):
     def post(self, request):
 
         # =====================================================
-        # 1. GET SUBSECTION ID
+        # 1. GET GRADE ID + SUBSECTION ID
         # =====================================================
 
+        grade_id = request.data.get("grade_id")
         subsection_id = request.data.get("subsection_id")
+
+        if not grade_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "grade_id is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         if not subsection_id:
             return Response(
@@ -261,12 +271,17 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         try:
+            grade_id = int(grade_id)
             subsection_id = int(subsection_id)
+
         except (TypeError, ValueError):
             return Response(
                 {
                     "success": False,
-                    "message": "subsection_id must be an integer."
+                    "message": (
+                        "grade_id and subsection_id "
+                        "must be integers."
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
@@ -278,6 +293,7 @@ class BulkQuestionCreateAPIView(APIView):
         subsection = (
             AssessmentStructure.objects
             .filter(
+                grade_id=grade_id,
                 subsection_id=subsection_id,
                 status="ACTIVE"
             )
@@ -288,7 +304,7 @@ class BulkQuestionCreateAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Subsection not found."
+                    "message": "Subsection not found for the selected grade."
                 },
                 status=status.HTTP_404_NOT_FOUND
             )
@@ -580,6 +596,7 @@ class BulkQuestionCreateAPIView(APIView):
                 "message":
                     f"{len(created_questions)} "
                     f"questions created successfully.",
+                "grade_id": grade_id,
                 "subsection_id": subsection_id,
                 "data": serializer.data,
             },
@@ -607,10 +624,20 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 2. GET SUBSECTION ID
+        # 2. GET GRADE ID + SUBSECTION ID
         # =====================================================
 
+        grade_id = request.data.get("grade_id")
         subsection_id = request.data.get("subsection_id")
+
+        if not grade_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "grade_id is required."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         if not subsection_id:
             return Response(
@@ -622,12 +649,17 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         try:
+            grade_id = int(grade_id)
             subsection_id = int(subsection_id)
+
         except (TypeError, ValueError):
             return Response(
                 {
                     "success": False,
-                    "message": "subsection_id must be an integer."
+                    "message": (
+                        "grade_id and subsection_id "
+                        "must be integers."
+                    )
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
@@ -639,6 +671,7 @@ class BulkQuestionCreateAPIView(APIView):
         subsection = (
             AssessmentStructure.objects
             .filter(
+                grade_id=grade_id,
                 subsection_id=subsection_id,
                 status="ACTIVE"
             )
@@ -649,13 +682,28 @@ class BulkQuestionCreateAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Subsection not found."
+                    "message": "Subsection not found for the selected grade."
                 },
                 status=status.HTTP_404_NOT_FOUND
             )
+            
+        # =====================================================
+        # 4. VERIFY QUESTION BELONGS TO SUBSECTION
+        # =====================================================
+
+        if question.subsection_id != subsection_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "Question does not belong to the selected subsection."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # =====================================================
-        # 4. UPDATE QUESTION TYPE
+        # 5. UPDATE QUESTION TYPE
         # =====================================================
 
         if "question_type" in request.data:
@@ -664,7 +712,7 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 5. UPDATE QUESTION TEXT
+        # 6. UPDATE QUESTION TEXT
         # =====================================================
 
         if "question_text" in request.data:
@@ -673,7 +721,7 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 6. UPDATE QUESTION IMAGE
+        # 8. UPDATE QUESTION IMAGE
         # =====================================================
 
         if "question_image" in request.FILES:
@@ -682,7 +730,7 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 7. UPDATE OPTIONS
+        # 9. UPDATE OPTIONS
         # =====================================================
 
         if "options_json" in request.data:
@@ -708,7 +756,7 @@ class BulkQuestionCreateAPIView(APIView):
             question.options_json = options_json
 
         # =====================================================
-        # 8. UPDATE CORRECT ANSWER
+        # 10. UPDATE CORRECT ANSWER
         # =====================================================
 
         if "correct_answer_json" in request.data:
@@ -734,7 +782,7 @@ class BulkQuestionCreateAPIView(APIView):
             question.correct_answer_json = correct_answer_json
 
         # =====================================================
-        # 9. UPDATE MARKS
+        # 11. UPDATE MARKS
         # =====================================================
 
         if "marks" in request.data:
@@ -743,7 +791,7 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 10. UPDATE NEGATIVE MARKS
+        # 12. UPDATE NEGATIVE MARKS
         # =====================================================
 
         if "negative_marks" in request.data:
@@ -752,7 +800,7 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 11. UPDATE EXPLANATION
+        # 13. UPDATE EXPLANATION
         # =====================================================
 
         if "explanation" in request.data:
@@ -761,7 +809,7 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 12. UPDATE STATUS
+        # 14. UPDATE STATUS
         # =====================================================
 
         if "status" in request.data:
@@ -770,7 +818,7 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 13. UPDATE OPTION IMAGE
+        # 15. UPDATE OPTION IMAGE
         # =====================================================
 
         if "option_image" in request.FILES:
@@ -779,13 +827,13 @@ class BulkQuestionCreateAPIView(APIView):
             )
 
         # =====================================================
-        # 14. SAVE
+        # 16. SAVE
         # =====================================================
 
         question.save()
 
         # =====================================================
-        # 15. RESPONSE
+        # 17. RESPONSE
         # =====================================================
 
         serializer = QuestionSerializer(question)
@@ -802,19 +850,22 @@ class BulkQuestionCreateAPIView(APIView):
         
 class SubsectionQuestionsAPIView(APIView):
 
-    def get(self, request, subsection_id):
+    def get(self, request, grade_id, subsection_id):
 
         # -----------------------------------------
-        # 1. Get subsection
+        # 1. Get subsection for the given grade
         # -----------------------------------------
 
         subsection = (
             AssessmentStructure.objects
             .filter(
+                grade_id=grade_id,
                 subsection_id=subsection_id,
                 status="ACTIVE"
             )
             .only(
+                "grade_id",
+                "grade_name",
                 "subsection_id",
                 "subsection_name"
             )
@@ -825,7 +876,10 @@ class SubsectionQuestionsAPIView(APIView):
             return Response(
                 {
                     "success": False,
-                    "message": "Subsection not found."
+                    "message": (
+                        f"Subsection {subsection_id} "
+                        f"not found for grade {grade_id}."
+                    )
                 },
                 status=status.HTTP_404_NOT_FOUND
             )
@@ -876,6 +930,7 @@ class SubsectionQuestionsAPIView(APIView):
             data.append({
                 "id": question.id,
                 "question_code": question.question_code,
+                "grade_id": subsection.grade_id,
                 "subsection_id": question.subsection_id,
                 "question_type": question.question_type,
                 "question_text": question.question_text,
@@ -893,6 +948,8 @@ class SubsectionQuestionsAPIView(APIView):
         return Response(
             {
                 "success": True,
+                "grade_id": subsection.grade_id,
+                "grade_name": subsection.grade_name,
                 "subsection_id": subsection.subsection_id,
                 "subsection_name": subsection.subsection_name,
                 "question_count": len(data),

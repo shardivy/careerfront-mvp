@@ -29,8 +29,8 @@ urlpatterns = [
         name="question-update",
     ),
     path(
-        "subsections/<int:subsection_id>/questions/",
+        "grades/<int:grade_id>/subsections/<int:subsection_id>/questions/",
         SubsectionQuestionsAPIView.as_view(),
         name="subsection-questions"
-    )
+    ),
 ]

@@ -31,46 +31,96 @@ class AssessmentStructureCreateAPIView(APIView):
         data = serializer.validated_data
 
         # -----------------------------------------
-        # Generate Grade ID
+        # Grade
         # -----------------------------------------
-        last_grade_id = (
+        grade_name = data["grade_name"].strip()
+
+        existing_grade = (
             AssessmentStructure.objects
-            .aggregate(max_id=Max("grade_id"))
-            ["max_id"]
-        )
-
-        grade_id = (last_grade_id or 0) + 1
-
-        # -----------------------------------------
-        # Generate Assessment ID
-        # -----------------------------------------
-        last_assessment_id = (
-            AssessmentStructure.objects
-            .aggregate(max_id=Max("assessment_id"))
-            ["max_id"]
-        )
-
-        assessment_id = (last_assessment_id or 0) + 1
-
-        # -----------------------------------------
-        # Generate Assessment Code
-        # ASSE001, ASSE002, ASSE003...
-        # -----------------------------------------
-        last_assessment_code = (
-            AssessmentStructure.objects
-            .filter(assessment_code__startswith="ASSE")
-            .order_by("-assessment_id")
-            .values_list("assessment_code", flat=True)
+            .filter(
+                grade_name__iexact=grade_name
+            )
+            .order_by("id")
             .first()
         )
 
-        if last_assessment_code:
-            last_number = int(
-                last_assessment_code.replace("ASSE", "")
-            )
-            assessment_code = f"ASSE{last_number + 1:03d}"
+        if existing_grade:
+            # Existing grade → reuse same grade_id
+            grade_id = existing_grade.grade_id
         else:
-            assessment_code = "ASSE001"
+            # New grade → generate new grade_id
+            last_grade_id = (
+                AssessmentStructure.objects
+                .aggregate(max_id=Max("grade_id"))
+                ["max_id"]
+            )
+
+            grade_id = (last_grade_id or 0) + 1
+
+
+        # -----------------------------------------
+        # Assessment
+        # -----------------------------------------
+        assessment_name = data["assessment_name"].strip()
+
+        existing_assessment = (
+            AssessmentStructure.objects
+            .filter(
+                grade_id=grade_id,
+                assessment_name__iexact=assessment_name
+            )
+            .order_by("id")
+            .first()
+        )
+
+        if existing_assessment:
+
+            # Existing assessment → reuse IDs
+            assessment_id = existing_assessment.assessment_id
+            assessment_code = existing_assessment.assessment_code
+
+        else:
+
+            # New assessment → generate new ID
+            last_assessment_id = (
+                AssessmentStructure.objects
+                .aggregate(max_id=Max("assessment_id"))
+                ["max_id"]
+            )
+
+            assessment_id = (last_assessment_id or 0) + 1
+
+            # -----------------------------------------
+            # Generate Assessment Code
+            # ASSE001, ASSE002, ASSE003...
+            # -----------------------------------------
+
+            last_assessment_code = (
+                AssessmentStructure.objects
+                .filter(
+                    assessment_code__startswith="ASSE"
+                )
+                .order_by("-assessment_id")
+                .values_list(
+                    "assessment_code",
+                    flat=True
+                )
+                .first()
+            )
+
+            if last_assessment_code:
+                last_number = int(
+                    last_assessment_code.replace(
+                        "ASSE",
+                        ""
+                    )
+                )
+
+                assessment_code = (
+                    f"ASSE{last_number + 1:03d}"
+                )
+            else:
+                assessment_code = "ASSE001"
 
         # -----------------------------------------
         # Generate Section ID
