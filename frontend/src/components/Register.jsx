@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-    Compass,
     User,
     Mail,
     Phone,
@@ -50,7 +49,7 @@ const Register = () => {
         email: "",
         mobile: "",
         grade: "",
-        city: "",
+        // city: "",
         password: "",
         confirmPassword: "",
         agreeTerms: false,
@@ -197,7 +196,7 @@ const Register = () => {
             email: form.email,
             mobile: form.mobile,
             grade: form.grade,
-            city: form.city,
+            // city: form.city,
             password: form.password,
             confirm_password: form.confirmPassword,
         };
@@ -273,15 +272,18 @@ const Register = () => {
                 <div className="pointer-events-none absolute bottom-0 -right-10 w-80 h-80 rounded-full bg-blue-200/40 blur-3xl" />
 
                 {/* Logo */}
-                <div className="relative flex items-center gap-3 mb-10">
-                    <div
-                        className={`w-11 h-11 ${theme.radius.md} flex items-center justify-center ${theme.shadow.button}`}
-                        style={{ backgroundColor: theme.colors.primary }}
+                <div className="relative flex items-center gap-1 mb-10">
+                    <img
+                        src="./logoo.png"
+                        alt="TheCareerFront Logo"
+                        className="w-20 h-20 object-contain"
+                    />
+
+                    <span
+                        className="text-2xl font-bold tracking-tight"
+                        style={{ color: theme.colors.text.heading }}
                     >
-                        <Compass className="w-6 h-6" style={{ color: theme.colors.text.white }} strokeWidth={2} />
-                    </div>
-                    <span className="text-2xl font-bold tracking-tight" style={{ color: theme.colors.text.heading }}>
-                        TrueMindPath
+                        TheCareerFront
                     </span>
                 </div>
 
@@ -340,7 +342,7 @@ const Register = () => {
                 {/* Hero illustration card */}
                 <div className="relative flex-1 min-h-[420px] rounded-3xl flex items-center justify-start pl-1">
                     <img
-                        src="/register-img.png"
+                        src="/regi1.png"
                         alt="Students discovering their career path"
                         className="w-[420px] h-auto object-contain animate-float"
                     />
@@ -438,18 +440,17 @@ const Register = () => {
                             error={errors.email}
                         />
 
-                        <Field
-                            label="Phone Number"
-                            name="mobile"
-                            type="tel"
-                            placeholder="+91 98765 43210"
-                            icon={Phone}
-                            value={form.mobile}
-                            onChange={handleChange}
-                            error={errors.mobile}
-                        />
-
                         <div className="grid grid-cols-2 gap-4">
+                            <Field
+                                label="Phone Number"
+                                name="mobile"
+                                type="tel"
+                                placeholder="+91 98765 43210"
+                                icon={Phone}
+                                value={form.mobile}
+                                onChange={handleChange}
+                                error={errors.mobile}
+                            />
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
                                     Current Grade
@@ -470,16 +471,15 @@ const Register = () => {
                                     </select>
                                 </div>
                             </div>
-                            <Field
-                                label="City"
-                                name="city"
-                                placeholder="Mumbai"
-                                icon={MapPin}
-                                value={form.city}
-                                onChange={handleChange}
-                            />
                         </div>
-
+                        {/* <Field
+    label="City"
+    name="city"
+    placeholder="Mumbai"
+    icon={MapPin}
+    value={form.city}
+    onChange={handleChange}
+/> */}
                         <PasswordField
                             label="Password"
                             name="password"
@@ -512,7 +512,7 @@ const Register = () => {
                                 className="mt-0.5 w-4 h-4 rounded border-slate-300 text-[#3B82F6] focus:ring-[#60A5FA]"
                             />
                             <span>
-                                I agree to TrueMindPath's{" "}
+                                I agree to TheCareerFront's{" "}
                                 <a href="#" className="font-medium" style={{ color: theme.colors.primary }}>
                                     Terms of Service
                                 </a>{" "}
@@ -580,7 +580,7 @@ const Register = () => {
                     <br />
                     <div className="w-full border-t border-slate-200 px-6 sm:px-12 lg:px-20 py-5">
                         <p className="text-sm text-slate-400 text-center lg:text-left">
-                            © 2026 TrueMindPath. All rights reserved.
+                            © 2026 TheCareerFront. All rights reserved.
                         </p>
                     </div>
                 </div>

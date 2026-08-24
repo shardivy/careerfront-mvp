@@ -8,6 +8,7 @@ import {
   Binary,
   CalendarDays,
   Check,
+  FileQuestion,
 } from "lucide-react";
 import theme from "../../theme/theme";
 import { UseTestSubsection } from "../hooks/UseTestSubsections";
@@ -25,6 +26,7 @@ import {
   getAttemptId,
   getStudentId,
   getSubsectionResponses,
+  includeUnansweredQuestionResponses,
   saveQuestionResponse,
   clearSubsectionResponses,
 } from "../../utils/studentResponseStorage";
@@ -70,6 +72,11 @@ const RapidAssessmentRunner = () => {
     () => transformRapidAssessmentQuestions(apiQuestions),
     [apiQuestions]
   );
+  // Resolved groups — either the API-derived groups, or whatever the
+  // local QUESTION_BANKS fallback has. Defined up here (moved from
+  // further down the file) so the timer-start guard below can check
+  // groups.length before starting any countdown.
+  const groups = apiGroups.length > 0 ? apiGroups : (section?.groups || []);
 
   const [answers, setAnswers] = useState(
     () => loadAutosave(testType, sectionId)?.answers ?? {}
@@ -113,12 +120,15 @@ const RapidAssessmentRunner = () => {
   // Once we know the section's time limit, establish timeEndsAt exactly
   // ONCE — either from what was restored above, or freshly computed as
   // Date.now() + limit if this section has never been started before.
+  // Skipped entirely when there are no groups (i.e. no questions) to
+  // answer — no point starting a countdown for an empty subsection.
   useEffect(() => {
     if (isLoading) return;
+    if (groups.length === 0) return;
     if (!Number.isFinite(section?.timeLimitSeconds)) return;
     if (timeEndsAt) return; // already have one (restored or already set)
     setTimeEndsAt(Date.now() + section.timeLimitSeconds * 1000);
-  }, [isLoading, section?.timeLimitSeconds, timeEndsAt]);
+  }, [isLoading, section?.timeLimitSeconds, timeEndsAt, groups.length]);
 
   // Toast whenever connectivity flips — skip the very first check on
   // mount so we don't fire a spurious "Back online" toast immediately.
@@ -270,8 +280,6 @@ const RapidAssessmentRunner = () => {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const groups = apiGroups.length > 0 ? apiGroups : (section?.groups || []);
-
   const handleSubmit = async (autoSubmitted = false) => {
     if (submittedRef.current || isSubmitting) {
       return;
@@ -335,19 +343,30 @@ const RapidAssessmentRunner = () => {
       return sum + g.items.filter((item) => answers[item.id] !== undefined).length;
     }, 0);
 
+    const secondsRemaining = Number.isFinite(timeEndsAt)
+      ? Math.max(0, Math.round((timeEndsAt - Date.now()) / 1000))
+      : 0;
+    const timeUsedSeconds = Number.isFinite(section?.timeLimitSeconds)
+      ? Math.max(0, section.timeLimitSeconds - secondsRemaining)
+      : undefined;
+
     try {
       setIsSubmitting(true);
       setSubmitError(null);
 
-      const localResponses = getSubsectionResponses(attemptId, subsectionId);
+      const savedResponses = getSubsectionResponses(attemptId, subsectionId);
+      const responseQuestions = groups.flatMap((group) => group.items || []);
+      const localResponses = autoSubmitted
+        ? includeUnansweredQuestionResponses(responseQuestions, savedResponses)
+        : savedResponses;
 
-      console.log("=================================");
-      console.log("RAPID ASSESSMENT SUBMIT");
-      console.log("=================================");
-      console.log("Attempt ID:", attemptId);
-      console.log("Student ID:", studentId);
-      console.log("Subsection ID:", subsectionId);
-      console.log("Responses:", localResponses);
+      // console.log("=================================");
+      // console.log("RAPID ASSESSMENT SUBMIT");
+      // console.log("=================================");
+      // console.log("Attempt ID:", attemptId);
+      // console.log("Student ID:", studentId);
+      // console.log("Subsection ID:", subsectionId);
+      // console.log("Responses:", localResponses);
 
       const result = await saveStudentResponsesApi({
         attemptId,
@@ -388,6 +407,7 @@ const RapidAssessmentRunner = () => {
           answeredCount: answeredQuestionsFromApi ?? fallbackAnswered,
           remainingQuestions: subsectionResult?.remaining_questions,
           subsectionStatus: subsectionResult?.subsection_status,
+          timeUsedSeconds,
           autoSubmitted,
           submittedResponse: result,
         },
@@ -412,6 +432,51 @@ const RapidAssessmentRunner = () => {
     handleSubmit(true);
   };
 
+  // Top bar used ONLY on the empty-state screen below — no `right`
+  // slot (timer) and no `below` progress chips, since there are no
+  // groups to show chips for.
+  const emptyStateTopBar = (
+    <TopBar
+      maxWidth="max-w-4xl"
+      sticky
+      center={
+        <span className="text-base sm:text-lg font-medium">
+          {section?.title}
+        </span>
+      }
+    />
+  );
+
+  // The questions endpoint can validly return an empty list, which
+  // means no groups get derived from it either. Show a dedicated "not
+  // found" screen instead of the runner UI in that case, with no timer
+  // running behind it.
+  if (!isLoading && groups.length === 0) {
+    return (
+      <StudentLayout topBar={emptyStateTopBar}>
+        {!isOnline && <OfflineBanner />}
+        <main className="flex-1 flex items-center justify-center px-4 sm:px-6 py-12">
+          <div
+            className={`w-full max-w-md ${theme.radius.xl} bg-white border border-slate-100 px-6 py-10 text-center ${theme.shadow.card}`}
+          >
+            <span
+              className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full"
+              style={{ backgroundColor: "#EFF6FF" }}
+            >
+              <FileQuestion className="h-7 w-7" style={{ color: theme.colors.primary }} />
+            </span>
+            <h1 className="text-xl font-bold" style={{ color: theme.colors.text.heading }}>
+              Question data not found
+            </h1>
+            <p className="mt-2 text-sm" style={{ color: theme.colors.text.light }}>
+              There are no questions available for this section right now.
+            </p>
+          </div>
+        </main>
+      </StudentLayout>
+    );
+  }
+
   return (
     <StudentLayout
       topBar={
@@ -428,7 +493,7 @@ const RapidAssessmentRunner = () => {
               endsAt={timeEndsAt}
               loading={isLoading}
               onExpire={handleTimeExpire}
-                paused={!isOnline} 
+              paused={!isOnline}
             />
           }
           below={

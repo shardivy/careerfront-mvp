@@ -211,18 +211,18 @@ const ForgotPassword = () => {
                 <div className="pointer-events-none absolute bottom-0 -right-10 w-80 h-80 rounded-full bg-blue-200/40 blur-3xl" />
 
                 {/* Logo */}
-                <div className="relative flex items-center gap-3 mb-10">
-                    <div
-                        className={`w-11 h-11 ${theme.radius.md} flex items-center justify-center ${theme.shadow.button}`}
-                        style={{ backgroundColor: theme.colors.primary }}
-                    >
-                        <Compass className="w-6 h-6" style={{ color: theme.colors.text.white }} strokeWidth={2} />
-                    </div>
+                <div className="relative flex items-center gap-1 mb-10">
+                    <img
+                        src="/logoo.png"
+                        alt="TheCareerFront Logo"
+                        className="w-20 h-20 object-contain"
+                    />
+
                     <span
                         className="text-2xl font-bold tracking-tight"
                         style={{ color: theme.colors.text.heading }}
                     >
-                        TrueMindPath
+                        TheCareerFront
                     </span>
                 </div>
 

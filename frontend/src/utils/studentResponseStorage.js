@@ -285,3 +285,52 @@ export const hasSubsectionResponses = (
 
   return responses.length > 0;
 };
+
+// =====================================================
+// COMPLETE AUTO-SUBMIT RESPONSES
+// =====================================================
+// The backend expects every question in an auto-submitted subsection. A
+// question the student did not answer is therefore represented explicitly
+// with a null option and is_answered: false, rather than being omitted.
+export const includeUnansweredQuestionResponses = (
+  questions,
+  existingResponses
+) => {
+  const savedByQuestionId = new Map(
+    (existingResponses || []).map((response) => [
+      String(response.question_id),
+      response,
+    ])
+  );
+
+  const seenQuestionIds = new Set();
+
+  return (questions || []).reduce((responses, question) => {
+    const questionId =
+      question && typeof question === "object" ? question.id : question;
+
+    if (questionId === null || questionId === undefined) {
+      return responses;
+    }
+
+    const key = String(questionId);
+    if (seenQuestionIds.has(key)) {
+      return responses;
+    }
+    seenQuestionIds.add(key);
+
+    const saved = savedByQuestionId.get(key);
+    const hasSelectedResponse =
+      saved?.selected_response !== null &&
+      saved?.selected_response !== undefined;
+
+    responses.push({
+      question_id: questionId,
+      selected_response: hasSelectedResponse ? saved.selected_response : null,
+      is_answered: hasSelectedResponse && saved?.is_answered !== false,
+      is_marked: saved?.is_marked ?? false,
+    });
+
+    return responses;
+  }, []);
+};

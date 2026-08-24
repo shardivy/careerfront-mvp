@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Flag, ChevronLeft, ChevronRight } from "lucide-react";
+import { Flag, ChevronLeft, ChevronRight, FileQuestion } from "lucide-react";
 import theme from "../../theme/theme";
 import { UseTestSubsections } from "../hooks/UseTestSubsections";
 import { isTestComplete, isSectionComplete } from "./Testprogress";
@@ -25,11 +25,16 @@ import StudentLayout, {
 } from "../layouts/StudentLayout";
 
 import { saveStudentResponsesApi } from "../../api/student-api/studentResponseApi";
+import {
+  getBackendOptionId,
+  getOptionIndexFromStoredResponse,
+} from "../../utils/questionOptionIds";
 
 import {
   getAttemptId,
   getStudentId,
   getSubsectionResponses,
+  includeUnansweredQuestionResponses,
   saveQuestionResponse,
   saveQuestionMarkStatus,
   clearSubsectionResponses,
@@ -40,10 +45,7 @@ const QUESTIONS_PER_PAGE = 10;
 // Some question_text values from the backend arrive as pipe-delimited
 // segments (an intro line followed by several statements), sometimes with
 // stray \r\n and repeated spaces around each "|", e.g.:
-//   "If the first two statements are true, the third statement is \r\n     |     Sanya is older than Sahil.     |     ..."
-// This splits on "|", collapses whitespace/newlines within each segment,
-// and drops empty segments so each part can be rendered on its own line
-// instead of showing the raw pipes.
+
 const splitPromptSegments = (text) => {
   if (!text) return [];
   return String(text)
@@ -188,12 +190,6 @@ const AssessmentRunner = () => {
         type: "error",
       });
     }
-    // managerFromHook is intentionally excluded: useToastManager() returns a
-    // new reference on every render, so including it here reruns this
-    // effect (and posts a new toast) on every render — which re-renders
-    // the tree, produces another new reference, and loops until React
-    // throws "Maximum update depth exceeded".
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
 
   useEffect(() => {
@@ -223,6 +219,7 @@ const AssessmentRunner = () => {
     section?.timeLimitSeconds,
     delegatesToChildRunner,
     timeEndsAt,
+    questions.length,
   ]);
 
   useEffect(() => {
@@ -302,7 +299,10 @@ const AssessmentRunner = () => {
         item.selected_response !== null &&
         item.selected_response !== undefined
       ) {
-        restoredAnswers[questionIndex] = item.selected_response;
+        restoredAnswers[questionIndex] = getOptionIndexFromStoredResponse(
+          questions[questionIndex],
+          item.selected_response,
+        );
       }
 
       if (item.is_marked) {
@@ -435,7 +435,7 @@ const AssessmentRunner = () => {
       attemptId,
       subsectionId: section.dbId,
       questionId: question.id,
-      selectedResponse: optionIndex,
+      selectedResponse: getBackendOptionId(question, optionIndex),
     });
   };
 
@@ -531,11 +531,21 @@ const AssessmentRunner = () => {
       return;
     }
 
+    const secondsRemaining = Number.isFinite(timeEndsAt)
+      ? Math.max(0, Math.round((timeEndsAt - Date.now()) / 1000))
+      : 0;
+    const timeUsedSeconds = Number.isFinite(section?.timeLimitSeconds)
+      ? Math.max(0, section.timeLimitSeconds - secondsRemaining)
+      : undefined;
+
     try {
       setIsSubmitting(true);
       setSubmitError(null);
 
-      const localResponses = getSubsectionResponses(attemptId, subsectionId);
+      const savedResponses = getSubsectionResponses(attemptId, subsectionId);
+      const localResponses = autoSubmitted
+        ? includeUnansweredQuestionResponses(questions, savedResponses)
+        : savedResponses;
 
       console.log("=================================");
       console.log("SUBSECTION SUBMIT");
@@ -563,6 +573,7 @@ const AssessmentRunner = () => {
         state: {
           answers,
           totalQuestions: section?.totalQuestions ?? questions.length,
+          timeUsedSeconds,
           autoSubmitted,
           submittedResponse: result,
         },
@@ -695,7 +706,7 @@ const AssessmentRunner = () => {
           endsAt={timeEndsAt}
           loading={isLoading}
           onExpire={handleTimeExpire}
-            paused={!isOnline} 
+          paused={!isOnline}
         />
       }
       below={
@@ -719,6 +730,86 @@ const AssessmentRunner = () => {
       }
     />
   );
+  
+
+  // The questions endpoint can validly return an empty list. Do not continue
+  // into the single-question UI in that case: `currentQuestion` is undefined
+  // and attempting to read its prompt/options would crash the page.
+  if (!isLoading && questions.length === 0) {
+    return (
+      <StudentLayout topBar={sharedTopBar}>
+        {!isOnline && <OfflineBanner />}
+        <main className="flex-1 flex items-center justify-center px-4 sm:px-6 py-12">
+          <div
+            className={`w-full max-w-md ${theme.radius.xl} bg-white border border-slate-100 px-6 py-10 text-center ${theme.shadow.card}`}
+          >
+            <span
+              className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full"
+              style={{ backgroundColor: "#EFF6FF" }}
+            >
+              <FileQuestion className="h-7 w-7" style={{ color: theme.colors.primary }} />
+            </span>
+            <h1 className="text-xl font-bold" style={{ color: theme.colors.text.heading }}>
+              Question data not found
+            </h1>
+            <p className="mt-2 text-sm" style={{ color: theme.colors.text.light }}>
+              There are no questions available for this section right now.
+            </p>
+          </div>
+        </main>
+      </StudentLayout>
+    );
+  }
+
+  const emptyStateTopBar = (
+  <TopBar
+    maxWidth="max-w-6xl"
+    center={
+      <SectionProgressLabel
+        sectionNumber={sectionNumber}
+        sectionsTotal={sectionsTotal}
+        sectionTitle={section?.title}
+        loading={isLoading}
+      />
+    }
+    // no `right` — timer omitted entirely
+    below={
+      <SectionProgressLabel
+        sectionNumber={sectionNumber}
+        sectionsTotal={sectionsTotal}
+        sectionTitle={section?.title}
+        loading={isLoading}
+        mobile
+      />
+    }
+  />
+);
+
+  if (!isLoading && questions.length === 0) {
+  return (
+    <StudentLayout topBar={emptyStateTopBar}>
+      {!isOnline && <OfflineBanner />}
+      <main className="flex-1 flex items-center justify-center px-4 sm:px-6 py-12">
+        <div
+          className={`w-full max-w-md ${theme.radius.xl} bg-white border border-slate-100 px-6 py-10 text-center ${theme.shadow.card}`}
+        >
+          <span
+            className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full"
+            style={{ backgroundColor: "#EFF6FF" }}
+          >
+            <FileQuestion className="h-7 w-7" style={{ color: theme.colors.primary }} />
+          </span>
+          <h1 className="text-xl font-bold" style={{ color: theme.colors.text.heading }}>
+            Question data not found
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: theme.colors.text.light }}>
+            There are no questions available for this section right now.
+          </p>
+        </div>
+      </main>
+    </StudentLayout>
+  );
+}
 
   if (multiQuestionLayout) {
     return (
@@ -791,47 +882,47 @@ const AssessmentRunner = () => {
               <div className="flex flex-col gap-5">
                 {isLoading
                   ? Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className={`w-full ${theme.radius.lg} bg-white border px-6 py-6`}
+                      style={{ borderColor: theme.colors.border }}
+                    >
+                      <Skeleton className="h-5 w-11/12 mb-4" />
+                      <div className="flex flex-wrap gap-2.5">
+                        {[1, 2, 3, 4].map((j) => (
+                          <Skeleton
+                            key={j}
+                            className="h-10 w-28 rounded-md"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ))
+                  : pageQuestions.map((q, i) => {
+                    const qIndex = pageStart + i;
+                    const isMarked = marked.has(qIndex);
+                    const isWrapped = !!wrappedQuestions[qIndex];
+                    return (
                       <div
-                        key={i}
-                        className={`w-full ${theme.radius.lg} bg-white border px-6 py-6`}
+                        id={`mq-question-${qIndex}`}
+                        key={qIndex}
+                        className={`w-full ${theme.radius.lg} bg-white border px-6 py-5 sm:px-7 sm:py-6 scroll-mt-24 font`}
                         style={{ borderColor: theme.colors.border }}
                       >
-                        <Skeleton className="h-5 w-11/12 mb-4" />
-                        <div className="flex flex-wrap gap-2.5">
-                          {[1, 2, 3, 4].map((j) => (
-                            <Skeleton
-                              key={j}
-                              className="h-10 w-28 rounded-md"
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))
-                  : pageQuestions.map((q, i) => {
-                      const qIndex = pageStart + i;
-                      const isMarked = marked.has(qIndex);
-                      const isWrapped = !!wrappedQuestions[qIndex];
-                      return (
-                        <div
-                          id={`mq-question-${qIndex}`}
-                          key={qIndex}
-                          className={`w-full ${theme.radius.lg} bg-white border px-6 py-5 sm:px-7 sm:py-6 scroll-mt-24 font`}
-                          style={{ borderColor: theme.colors.border }}
-                        >
-                          <div className="flex items-start justify-between gap-4 mb-4">
-                            <p
-                             className="text-base sm:text-lg leading-relaxed flex-1 font-bold"
-                              style={{ color: theme.colors.text.heading }}
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <p
+                            className="text-base sm:text-lg leading-relaxed flex-1 font-bold"
+                            style={{ color: theme.colors.text.heading }}
+                          >
+                            <span
+                              className="mr-2 font-"
+                              style={{ color: theme.colors.text.dark }}
                             >
-                              <span
-                                className="mr-2 font-"
-                                style={{ color: theme.colors.text.dark }}
-                              >
-                                {qIndex + 1}.
-                              </span>
-                              <QuestionPrompt text={q.prompt} />
-                            </p>
-                            {/* <button
+                              {qIndex + 1}.
+                            </span>
+                            <QuestionPrompt text={q.prompt} />
+                          </p>
+                          {/* <button
                               type="button"
                               onClick={() => toggleMark(qIndex)}
                               className="shrink-0 flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-md border transition-colors"
@@ -850,127 +941,127 @@ const AssessmentRunner = () => {
                               <Flag className="w-3.5 h-3.5" />
                               {isMarked ? "Marked" : "Mark"}
                             </button> */}
-                          </div>
-
-                          <div className="relative">
-                            <div
-                              ref={(el) => {
-                                if (el) optionsRowRefs.current[qIndex] = el;
-                              }}
-                              className="flex flex-wrap gap-2.5 invisible absolute inset-x-0 top-0 pointer-events-none -z-10"
-                              aria-hidden="true"
-                            >
-                              {q.options.map((option, oi) => (
-                                <span
-                                  key={oi}
-                                  className="text-sm sm:text-base font-medium px-4 py-2.5 rounded-md border"
-                                >
-                                  {String.fromCharCode(65 + oi)}. {option}
-                                </span>
-                              ))}
-                            </div>
-
-                            {isWrapped ? (
-                              <div className="flex flex-col gap-3">
-                                {q.options.map((option, oi) => {
-                                  const isSelected = answers[qIndex] === oi;
-                                  const letter = String.fromCharCode(65 + oi);
-                                  return (
-                                    <button
-                                      key={oi}
-                                      type="button"
-                                      onClick={() => handleSelect(qIndex, oi)}
-                                      className={`w-full flex items-center justify-between gap-3 ${theme.radius.lg} border px-5 py-3.5 text-left transition-colors`}
-                                      style={{
-                                        borderColor: isSelected
-                                          ? theme.colors.primary
-                                          : theme.colors.border,
-                                        backgroundColor: isSelected
-                                          ? "#EFF6FF"
-                                          : "#FFFFFF",
-                                      }}
-                                    >
-                                      <span className="flex items-center gap-3.5 min-w-0">
-                                        <span
-                                          className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center"
-                                          style={{
-                                            borderColor: isSelected
-                                              ? theme.colors.primary
-                                              : "#CBD5E1",
-                                          }}
-                                        >
-                                          {isSelected && (
-                                            <span
-                                              className="w-3 h-3 rounded-full"
-                                              style={{
-                                                backgroundColor:
-                                                  theme.colors.primary,
-                                              }}
-                                            />
-                                          )}
-                                        </span>
-                                        <span
-                                          className="text-base break-words"
-                                          style={{
-                                            color: theme.colors.text.heading,
-                                          }}
-                                        >
-                                          {option}
-                                        </span>
-                                      </span>
-                                      <span
-                                        className="shrink-0 text-sm font-semibold"
-                                        style={{
-                                          color: theme.colors.text.light,
-                                        }}
-                                      >
-                                        {letter}
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="flex flex-wrap gap-2.5">
-                                {q.options.map((option, oi) => {
-                                  const isSelected = answers[qIndex] === oi;
-                                  const letter = String.fromCharCode(65 + oi);
-                                  return (
-                                    <button
-                                      key={oi}
-                                      type="button"
-                                      onClick={() => handleSelect(qIndex, oi)}
-                                      className="flex items-center gap-2 text-sm sm:text-base font-medium px-4 py-2.5 rounded-md border transition-colors"
-                                      style={{
-                                        borderColor: isSelected
-                                          ? theme.colors.primary
-                                          : theme.colors.border,
-                                        backgroundColor: isSelected
-                                          ? "#EFF6FF"
-                                          : "#FFFFFF",
-                                        color: theme.colors.text.heading,
-                                      }}
-                                    >
-                                      <span
-                                        className="font-semibold"
-                                        style={{
-                                          color: isSelected
-                                            ? theme.colors.primary
-                                            : theme.colors.text.light,
-                                        }}
-                                      >
-                                        {letter}.
-                                      </span>
-                                      {option}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
                         </div>
-                      );
-                    })}
+
+                        <div className="relative">
+                          <div
+                            ref={(el) => {
+                              if (el) optionsRowRefs.current[qIndex] = el;
+                            }}
+                            className="flex flex-wrap gap-2.5 invisible absolute inset-x-0 top-0 pointer-events-none -z-10"
+                            aria-hidden="true"
+                          >
+                            {q.options.map((option, oi) => (
+                              <span
+                                key={oi}
+                                className="text-sm sm:text-base font-medium px-4 py-2.5 rounded-md border"
+                              >
+                                {String.fromCharCode(65 + oi)}. {option}
+                              </span>
+                            ))}
+                          </div>
+
+                          {isWrapped ? (
+                            <div className="flex flex-col gap-3">
+                              {q.options.map((option, oi) => {
+                                const isSelected = answers[qIndex] === oi;
+                                const letter = String.fromCharCode(65 + oi);
+                                return (
+                                  <button
+                                    key={oi}
+                                    type="button"
+                                    onClick={() => handleSelect(qIndex, oi)}
+                                    className={`w-full flex items-center justify-between gap-3 ${theme.radius.lg} border px-5 py-3.5 text-left transition-colors`}
+                                    style={{
+                                      borderColor: isSelected
+                                        ? theme.colors.primary
+                                        : theme.colors.border,
+                                      backgroundColor: isSelected
+                                        ? "#EFF6FF"
+                                        : "#FFFFFF",
+                                    }}
+                                  >
+                                    <span className="flex items-center gap-3.5 min-w-0">
+                                      <span
+                                        className="shrink-0 w-6 h-6 rounded-full border-2 flex items-center justify-center"
+                                        style={{
+                                          borderColor: isSelected
+                                            ? theme.colors.primary
+                                            : "#CBD5E1",
+                                        }}
+                                      >
+                                        {isSelected && (
+                                          <span
+                                            className="w-3 h-3 rounded-full"
+                                            style={{
+                                              backgroundColor:
+                                                theme.colors.primary,
+                                            }}
+                                          />
+                                        )}
+                                      </span>
+                                      <span
+                                        className="text-base break-words"
+                                        style={{
+                                          color: theme.colors.text.heading,
+                                        }}
+                                      >
+                                        {option}
+                                      </span>
+                                    </span>
+                                    <span
+                                      className="shrink-0 text-sm font-semibold"
+                                      style={{
+                                        color: theme.colors.text.light,
+                                      }}
+                                    >
+                                      {letter}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-2.5">
+                              {q.options.map((option, oi) => {
+                                const isSelected = answers[qIndex] === oi;
+                                const letter = String.fromCharCode(65 + oi);
+                                return (
+                                  <button
+                                    key={oi}
+                                    type="button"
+                                    onClick={() => handleSelect(qIndex, oi)}
+                                    className="flex items-center gap-2 text-sm sm:text-base font-medium px-4 py-2.5 rounded-md border transition-colors"
+                                    style={{
+                                      borderColor: isSelected
+                                        ? theme.colors.primary
+                                        : theme.colors.border,
+                                      backgroundColor: isSelected
+                                        ? "#EFF6FF"
+                                        : "#FFFFFF",
+                                      color: theme.colors.text.heading,
+                                    }}
+                                  >
+                                    <span
+                                      className="font-semibold"
+                                      style={{
+                                        color: isSelected
+                                          ? theme.colors.primary
+                                          : theme.colors.text.light,
+                                      }}
+                                    >
+                                      {letter}.
+                                    </span>
+                                    {option}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
               </div>
             </div>
 
@@ -991,66 +1082,66 @@ const AssessmentRunner = () => {
               <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-4 gap-2.5 mb-5">
                 {isLoading
                   ? Array.from({ length: 12 }).map((_, i) => (
-                      <Skeleton key={i} className="aspect-square rounded-lg" />
-                    ))
+                    <Skeleton key={i} className="aspect-square rounded-lg" />
+                  ))
                   : questions.map((_, i) => {
-                      const state = getNavState(i);
-                      const c = navColors[state];
-                      return (
-                        <button
-                          key={i}
-                          type="button"
-                          onClick={() => jumpToQuestion(i)}
-                          className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
-                          style={{
-                            backgroundColor: c.bg,
-                            color: c.color,
-                            borderColor: c.border,
-                          }}
-                        >
-                          {i + 1}
-                        </button>
-                      );
-                    })}
+                    const state = getNavState(i);
+                    const c = navColors[state];
+                    return (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => jumpToQuestion(i)}
+                        className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
+                        style={{
+                          backgroundColor: c.bg,
+                          color: c.color,
+                          borderColor: c.border,
+                        }}
+                      >
+                        {i + 1}
+                      </button>
+                    );
+                  })}
               </div>
 
               <div className="flex flex-col gap-3">
                 {isLoading
                   ? [1, 2, 3, 4].map((i) => (
-                      <div key={i} className="flex items-center gap-2.5">
-                        <Skeleton className="w-3.5 h-3.5 rounded-full" />
-                        <Skeleton className="h-3 w-24" />
-                      </div>
-                    ))
+                    <div key={i} className="flex items-center gap-2.5">
+                      <Skeleton className="w-3.5 h-3.5 rounded-full" />
+                      <Skeleton className="h-3 w-24" />
+                    </div>
+                  ))
                   : [
-                      {
-                        label: "Answered",
-                        color: "#ECFDF5",
-                        border: "#34D399",
-                      },
-                      // { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
-                      {
-                        label: "Unvisited",
-                        color: "#FFFFFF",
-                        border: theme.colors.border,
-                      },
-                    ].map(({ label, color, border }) => (
-                      <div key={label} className="flex items-center gap-2.5">
-                        <span
-                          className="w-4 h-4 rounded-full border"
-                          style={{
-                            backgroundColor: color,
-                            borderColor: border,
-                          }}
-                        />
-                        <span
-                          className="text-sm"
-                          style={{ color: theme.colors.text.body }}
-                        >
-                          {label}
-                        </span>
-                      </div>
-                    ))}
+                    {
+                      label: "Answered",
+                      color: "#ECFDF5",
+                      border: "#34D399",
+                    },
+                    // { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
+                    {
+                      label: "Unvisited",
+                      color: "#FFFFFF",
+                      border: theme.colors.border,
+                    },
+                  ].map(({ label, color, border }) => (
+                    <div key={label} className="flex items-center gap-2.5">
+                      <span
+                        className="w-4 h-4 rounded-full border"
+                        style={{
+                          backgroundColor: color,
+                          borderColor: border,
+                        }}
+                      />
+                      <span
+                        className="text-sm"
+                        style={{ color: theme.colors.text.body }}
+                      >
+                        {label}
+                      </span>
+                    </div>
+                  ))}
               </div>
             </div>
           </div>
@@ -1443,67 +1534,67 @@ const AssessmentRunner = () => {
             <div className="grid grid-cols-6 sm:grid-cols-8 lg:grid-cols-4 gap-2.5 mb-5">
               {isLoading
                 ? Array.from({ length: 12 }).map((_, i) => (
-                    <Skeleton key={i} className="aspect-square rounded-lg" />
-                  ))
+                  <Skeleton key={i} className="aspect-square rounded-lg" />
+                ))
                 : questions.map((_, i) => {
-                    const state = getNavState(i);
-                    const c = navColors[state];
-                    return (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => goTo(i)}
-                        className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
-                        style={{
-                          backgroundColor: c.bg,
-                          color: c.color,
-                          borderColor: c.border,
-                        }}
-                      >
-                        {i + 1}
-                      </button>
-                    );
-                  })}
+                  const state = getNavState(i);
+                  const c = navColors[state];
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => goTo(i)}
+                      className="aspect-square rounded-lg border text-base font-medium flex items-center justify-center transition-colors"
+                      style={{
+                        backgroundColor: c.bg,
+                        color: c.color,
+                        borderColor: c.border,
+                      }}
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
             </div>
 
             <div className="flex flex-col gap-3">
               {isLoading
                 ? [1, 2, 3, 4].map((i) => (
-                    <div key={i} className="flex items-center gap-2.5">
-                      <Skeleton className="w-3.5 h-3.5 rounded-full" />
-                      <Skeleton className="h-3 w-24" />
-                    </div>
-                  ))
+                  <div key={i} className="flex items-center gap-2.5">
+                    <Skeleton className="w-3.5 h-3.5 rounded-full" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                ))
                 : [
-                    {
-                      label: "Current",
-                      color: theme.colors.primary,
-                      filled: true,
-                    },
-                    { label: "Answered", color: "#ECFDF5", border: "#34D399" },
-                    { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
-                    {
-                      label: "Unvisited",
-                      color: "#FFFFFF",
-                      border: theme.colors.border,
-                    },
-                  ].map(({ label, color, border, filled }) => (
-                    <div key={label} className="flex items-center gap-2.5">
-                      <span
-                        className="w-4 h-4 rounded-full border"
-                        style={{
-                          backgroundColor: filled ? color : color,
-                          borderColor: border || color,
-                        }}
-                      />
-                      <span
-                        className="text-sm"
-                        style={{ color: theme.colors.text.body }}
-                      >
-                        {label}
-                      </span>
-                    </div>
-                  ))}
+                  {
+                    label: "Current",
+                    color: theme.colors.primary,
+                    filled: true,
+                  },
+                  { label: "Answered", color: "#ECFDF5", border: "#34D399" },
+                  { label: "Marked", color: "#FEF3C7", border: "#FCD34D" },
+                  {
+                    label: "Unvisited",
+                    color: "#FFFFFF",
+                    border: theme.colors.border,
+                  },
+                ].map(({ label, color, border, filled }) => (
+                  <div key={label} className="flex items-center gap-2.5">
+                    <span
+                      className="w-4 h-4 rounded-full border"
+                      style={{
+                        backgroundColor: filled ? color : color,
+                        borderColor: border || color,
+                      }}
+                    />
+                    <span
+                      className="text-sm"
+                      style={{ color: theme.colors.text.body }}
+                    >
+                      {label}
+                    </span>
+                  </div>
+                ))}
             </div>
           </div>
         </div>

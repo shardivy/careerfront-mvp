@@ -137,7 +137,7 @@ const Login = () => {
         });
 
         setTimeout(() => {
-            navigate("/test-selection"); 
+            navigate("/test-selection");
             // navigate("/s-admin/dashboard");     
         }, 500);
 
@@ -305,20 +305,21 @@ const Login = () => {
                 <div className="pointer-events-none absolute bottom-0 -right-10 w-80 h-80 rounded-full bg-blue-200/40 blur-3xl" />
 
                 {/* Logo */}
-                <div className="relative flex items-center gap-3 mb-10">
-                    <div
-                        className={`w-11 h-11 ${theme.radius.md} flex items-center justify-center ${theme.shadow.button}`}
-                        style={{ backgroundColor: theme.colors.primary }}
-                    >
-                        <Compass className="w-6 h-6" style={{ color: theme.colors.text.white }} strokeWidth={2} />
-                    </div>
+                <div className="relative flex items-center gap-1 mb-10">
+                    <img
+                        src="./logoo.png"
+                        alt="TheCareerFront Logo"
+                        className="w-20 h-20 object-contain"
+                    />
+
                     <span
                         className="text-2xl font-bold tracking-tight"
                         style={{ color: theme.colors.text.heading }}
                     >
-                        TrueMindPath
+                        TheCareerFront
                     </span>
                 </div>
+
 
                 {/* Eyebrow badge */}
                 <div className={`relative w-fit ${theme.badge.white} text-slate-600 mb-6`}>
@@ -429,7 +430,7 @@ const Login = () => {
                             className="text-xl font-bold tracking-tight"
                             style={{ color: theme.colors.text.heading }}
                         >
-                            TrueMindPath
+                            TheCareerFront
                         </span>
                     </div>
 
@@ -449,7 +450,7 @@ const Login = () => {
                         Sign in to your account
                     </h2>
                     <p className="mb-7 text-center lg:text-left" style={{ color: theme.colors.text.light }}>
-                        New to TrueMindPath?{" "}
+                        New to TheCareerFront?{" "}
                         <a
                             href="#"
                             onClick={(e) => {
@@ -586,7 +587,7 @@ const Login = () => {
                     <br />
                     <div className="w-full border-t border-slate-200 py-5">
                         <p className="text-sm text-slate-400 text-center">
-                            © 2026 TrueMindPath. All rights reserved.
+                            © 2026 TheCareerFront. All rights reserved.
                         </p>
                     </div>
                 </div>

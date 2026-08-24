@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ChevronRight, Check } from "lucide-react";
+import { ChevronRight, Check, FileQuestion } from "lucide-react";
 import theme from "../../theme/theme";
 import { UseTestSubsection } from "../hooks/UseTestSubsections";
 import { saveAutosave, loadAutosave, clearAutosave } from "../hooks/testAutosave";
@@ -11,11 +11,13 @@ import { toast as toastManager, useToastManager } from "@/components/ui/toast";
 import StudentLayout, { TopBar, SectionTimer } from "../layouts/StudentLayout";
 import { useStudentQuestions } from "../hooks/useStudentQuestions";
 import { saveStudentResponsesApi } from "../../api/student-api/studentResponseApi";
+import { getBackendOptionId } from "../../utils/questionOptionIds";
 
 import {
   getAttemptId,
   getStudentId,
   getSubsectionResponses,
+  includeUnansweredQuestionResponses,
   saveQuestionResponse,
   clearSubsectionResponses,
 } from "../../utils/studentResponseStorage";
@@ -101,12 +103,15 @@ const InterestAssessmentRunner = () => {
   // Once we know the section's time limit, establish timeEndsAt exactly
   // ONCE — either from what was restored above, or freshly computed as
   // Date.now() + limit if this section has never been started before.
+  // Skipped entirely when there are no questions to answer — no point
+  // starting a countdown for a subsection with nothing in it.
   useEffect(() => {
     if (isLoading) return;
+    if (questions.length === 0) return;
     if (!Number.isFinite(section?.timeLimitSeconds)) return;
     if (timeEndsAt) return; // already have one (restored or already set)
     setTimeEndsAt(Date.now() + section.timeLimitSeconds * 1000);
-  }, [isLoading, section?.timeLimitSeconds, timeEndsAt]);
+  }, [isLoading, section?.timeLimitSeconds, timeEndsAt, questions.length]);
 
   // Toast whenever connectivity flips — skip the very first check on
   // mount so we don't fire a spurious "Back online" toast immediately.
@@ -191,7 +196,7 @@ const InterestAssessmentRunner = () => {
       attemptId,
       subsectionId,
       questionId: question.id,
-      selectedResponse: optionIndex,
+      selectedResponse: getBackendOptionId(question, optionIndex),
     });
   };
 
@@ -259,11 +264,21 @@ const InterestAssessmentRunner = () => {
       return;
     }
 
+    const secondsRemaining = Number.isFinite(timeEndsAt)
+      ? Math.max(0, Math.round((timeEndsAt - Date.now()) / 1000))
+      : 0;
+    const timeUsedSeconds = Number.isFinite(section?.timeLimitSeconds)
+      ? Math.max(0, section.timeLimitSeconds - secondsRemaining)
+      : undefined;
+
     try {
       setIsSubmitting(true);
       setSubmitError(null);
 
-      const localResponses = getSubsectionResponses(attemptId, subsectionId);
+      const savedResponses = getSubsectionResponses(attemptId, subsectionId);
+      const localResponses = autoSubmitted
+        ? includeUnansweredQuestionResponses(questions, savedResponses)
+        : savedResponses;
 
       console.log("=================================");
       console.log("INTEREST ASSESSMENT SUBMIT");
@@ -293,6 +308,7 @@ const InterestAssessmentRunner = () => {
         state: {
           answers,
           totalQuestions: questions.length,
+          timeUsedSeconds,
           autoSubmitted,
           submittedResponse: result,
         },
@@ -317,6 +333,49 @@ const InterestAssessmentRunner = () => {
     handleSubmit(true);
   };
 
+  // Top bar used ONLY on the empty-state screen below — deliberately
+  // has no `right` slot, so the timer never renders (and, combined with
+  // the timer-start guard above, never starts) when there are no
+  // questions to answer for this subsection.
+  const emptyStateTopBar = (
+    <TopBar
+      maxWidth="max-w-6xl"
+      sticky
+      center={
+        <span className="text-base sm:text-lg font-medium">{section?.title}</span>
+      }
+    />
+  );
+
+  // The questions endpoint can validly return an empty list. Show a
+  // dedicated "not found" screen instead of the Likert layout in that
+  // case, with no timer running behind it.
+  if (!isLoading && questions.length === 0) {
+    return (
+      <StudentLayout topBar={emptyStateTopBar}>
+        {!isOnline && <OfflineBanner />}
+        <main className="flex-1 flex items-center justify-center px-4 sm:px-6 py-12">
+          <div
+            className={`w-full max-w-md ${theme.radius.xl} bg-white border border-slate-100 px-6 py-10 text-center ${theme.shadow.card}`}
+          >
+            <span
+              className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full"
+              style={{ backgroundColor: "#EFF6FF" }}
+            >
+              <FileQuestion className="h-7 w-7" style={{ color: theme.colors.primary }} />
+            </span>
+            <h1 className="text-xl font-bold" style={{ color: theme.colors.text.heading }}>
+              Question data not found
+            </h1>
+            <p className="mt-2 text-sm" style={{ color: theme.colors.text.light }}>
+              There are no questions available for this section right now.
+            </p>
+          </div>
+        </main>
+      </StudentLayout>
+    );
+  }
+
   return (
     <StudentLayout
       topBar={
@@ -331,7 +390,7 @@ const InterestAssessmentRunner = () => {
               endsAt={timeEndsAt}
               loading={isLoading}
               onExpire={handleTimeExpire}
-                paused={!isOnline} 
+              paused={!isOnline}
             />
           }
         />
