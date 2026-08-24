@@ -5,7 +5,8 @@ from django.http import HttpResponse
 import openpyxl
 from django.utils import timezone
 
-from students.models import Student, StudentTestResponse
+from students.models import Student, StudentEmailOTP, StudentTestResponse
+from assessment.models import AssessmentStructure
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
@@ -46,6 +47,40 @@ class StudentAdmin(admin.ModelAdmin):
         "id",
         "created_at",
         "updated_at",
+    )
+
+    ordering = (
+        "-created_at",
+    )
+    
+@admin.register(StudentEmailOTP)
+class StudentEmailOTPAdmin(admin.ModelAdmin):
+
+    list_display = (
+        "id",
+        "student",
+        "otp",
+        "is_used",
+        "expires_at",
+        "created_at",
+    )
+
+    list_filter = (
+        "is_used",
+        "expires_at",
+        "created_at",
+    )
+
+    search_fields = (
+        "student__student_code",
+        "student__first_name",
+        "student__last_name",
+        "student__email",
+        "otp",
+    )
+
+    readonly_fields = (
+        "created_at",
     )
 
     ordering = (
@@ -171,10 +206,37 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
                 return timezone.make_naive(value)
             return value
 
+        # =====================================================
+        # FETCH STUDENT + QUESTION
+        # =====================================================
+
         queryset = queryset.select_related(
             "student",
             "question",
         )
+
+        # =====================================================
+        # FETCH SUBSECTION NAMES FROM ASSESSMENT STRUCTURE
+        # =====================================================
+
+        subsection_ids = queryset.values_list(
+            "subsection_id",
+            flat=True
+        ).distinct()
+
+        subsection_map = {
+            obj.subsection_id: obj.subsection_name
+            for obj in AssessmentStructure.objects.filter(
+                subsection_id__in=subsection_ids
+            ).only(
+                "subsection_id",
+                "subsection_name",
+            )
+        }
+
+        # =====================================================
+        # WORKBOOK
+        # =====================================================
 
         workbook = openpyxl.Workbook()
         worksheet = workbook.active
@@ -191,7 +253,9 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
             "Student Name",
             "Assessment ID",
             "Question Code",
+            "Question",
             "Subsection ID",
+            "Subsection Name",
             "Selected Response",
             "Is Answered",
             "Is Correct",
@@ -210,31 +274,61 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
 
             student_code = ""
             student_name = ""
+
             question_code = ""
+            question_text = ""
+
+            # =================================================
+            # STUDENT
+            # =================================================
 
             if obj.student:
-                student_code = obj.student.student_code or ""
+
+                student_code = (
+                    obj.student.student_code or ""
+                )
 
                 student_name = (
                     f"{obj.student.first_name or ''} "
                     f"{obj.student.last_name or ''}"
                 ).strip()
 
+            # =================================================
+            # QUESTION
+            # =================================================
+
             if obj.question:
+
                 question_code = (
                     obj.question.question_code or ""
                 )
+
+                question_text = (
+                    obj.question.question_text or ""
+                )
+
+            # =================================================
+            # SUBSECTION
+            # =================================================
+
+            subsection_name = subsection_map.get(
+                obj.subsection_id,
+                ""
+            )
 
             # =================================================
             # SELECTED RESPONSE JSON
             # =================================================
 
             if obj.selected_response_json is not None:
+
                 selected_response = json.dumps(
                     obj.selected_response_json,
                     ensure_ascii=False
                 )
+
             else:
+
                 selected_response = ""
 
             # =================================================
@@ -244,7 +338,6 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
             worksheet.append([
                 obj.id,
 
-                # UUID → string
                 str(obj.attempt_id)
                 if obj.attempt_id
                 else "",
@@ -253,10 +346,20 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
                 student_name,
 
                 obj.assessment_id,
+
+                # Question Code
                 question_code,
+
+                # Actual Question
+                question_text,
+
+                # Subsection ID
                 obj.subsection_id,
 
-                # JSON → string
+                # Subsection Name
+                subsection_name,
+
+                # Selected Response
                 selected_response,
 
                 obj.is_answered,
@@ -264,10 +367,17 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
                 obj.marks_awarded,
                 obj.test_status,
 
-                # Timezone-aware → timezone-naive
-                excel_datetime(obj.last_activity_at),
-                excel_datetime(obj.submitted_at),
-                excel_datetime(obj.created_at),
+                excel_datetime(
+                    obj.last_activity_at
+                ),
+
+                excel_datetime(
+                    obj.submitted_at
+                ),
+
+                excel_datetime(
+                    obj.created_at
+                ),
             ])
 
         # =====================================================
@@ -282,6 +392,7 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
             for cell in column:
 
                 if cell.value is not None:
+
                     max_length = max(
                         max_length,
                         len(str(cell.value))
@@ -289,7 +400,10 @@ class StudentTestResponseAdmin(admin.ModelAdmin):
 
             worksheet.column_dimensions[
                 column_letter
-            ].width = min(max_length + 2, 50)
+            ].width = min(
+                max_length + 2,
+                80
+            )
 
         # =====================================================
         # RESPONSE

@@ -27,6 +27,10 @@ SECRET_KEY = 'django-insecure-81ovpm1hw)c^_8br0ft3h%^%$=hgao=$m7k^$w0&8%^ow^f!8&
 DEBUG = True
 
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default="").split(',')
+# ALLOWED_HOSTS = config(
+#     "ALLOWED_HOSTS",
+#     default="localhost,127.0.0.1"
+# ).split(",")
 
 CSRF_TRUSTED_ORIGINS = config(
     'CSRF_TRUSTED_ORIGINS',
@@ -62,6 +66,26 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+DEBUG = True
+
+# ALLOWED_HOSTS = [
+#     "localhost",
+#     "127.0.0.1",
+# ]
+
+# CSRF_TRUSTED_ORIGINS = [
+#     "http://localhost:8000",
+#     "http://127.0.0.1:8000",
+#     "http://192.168.1.2:8000",
+# ]
+
+# CSRF_COOKIE_SECURE = False
+# CSRF_COOKIE_HTTPONLY = False
+# CSRF_COOKIE_SAMESITE = "Lax"
+
+# SESSION_COOKIE_SECURE = False
+# SESSION_COOKIE_SAMESITE = "Lax"
 
 ROOT_URLCONF = 'backend.urls'
 
@@ -173,6 +197,21 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# =========================
+# EMAIL
+# =========================
+
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = config('EMAIL_HOST')
+EMAIL_PORT = config('EMAIL_PORT', cast=int)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', cast=bool)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD')
+
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+STUDENT_FIXED_OTP = "120721"
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

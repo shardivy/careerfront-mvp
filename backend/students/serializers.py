@@ -6,19 +6,40 @@ from students.models import Student
 
 class StudentSyncSerializer(serializers.ModelSerializer):
 
+    grade_name = serializers.CharField(
+        write_only=True,
+        required=True
+    )
+
     class Meta:
         model = Student
         fields = [
             "global_student_id",
             "first_name",
             "last_name",
-            "grade_id",
+            "grade_name",
             "section_name",
             "email",
             "mobile",
             "parent_name",
             "parent_mobile",
         ]
+
+    def create(self, validated_data):
+
+        # Remove grade_name because Student model
+        # does not contain this field
+        validated_data.pop("grade_name", None)
+
+        return Student.objects.create(**validated_data)
+
+    def update(self, instance, validated_data):
+
+        # Remove grade_name because it is handled
+        # separately in StudentSyncAPIView
+        validated_data.pop("grade_name", None)
+
+        return super().update(instance, validated_data)
         
 class StudentAnswerSerializer(serializers.Serializer):
 

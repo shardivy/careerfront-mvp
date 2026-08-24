@@ -68,6 +68,22 @@ class Student(models.Model):
         blank=True,
         null=True
     )
+    
+    # -----------------------------------------
+    # Authentication
+    # -----------------------------------------
+
+    password = models.CharField(
+        max_length=128,
+        blank=True,
+        null=True
+    )
+
+    is_email_verified = models.BooleanField(
+        default=False,
+        blank=True,
+        null=True
+    )
 
     status = models.CharField(
         max_length=20,
@@ -88,6 +104,39 @@ class Student(models.Model):
 
     def __str__(self):
         return f"{self.student_code} - {self.first_name}"
+    
+class StudentEmailOTP(models.Model):
+
+    id = models.BigAutoField(
+        primary_key=True
+    )
+
+    student = models.ForeignKey(
+        Student,
+        on_delete=models.CASCADE,
+        related_name="email_otps"
+    )
+
+    otp = models.CharField(
+        max_length=6
+    )
+
+    is_used = models.BooleanField(
+        default=False
+    )
+
+    expires_at = models.DateTimeField()
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    class Meta:
+        db_table = "student_email_otps"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.student.student_code} - {self.otp}"
     
 class StudentTestResponse(models.Model):
     
