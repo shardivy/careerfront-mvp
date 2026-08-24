@@ -182,7 +182,7 @@ export const QUESTION_BANKS = {
     layout: "single-page",
     subtitle: "Letter, Number & Pattern Comparison",
     difficulty: "Speed Test",
-    totalQuestions: 55,
+    totalQuestions: 65,
     instructions: [
       "Read each question carefully before selecting your answer.",
       "Work as quickly as possible while maintaining accuracy.",
@@ -302,7 +302,7 @@ export const QUESTION_BANKS = {
     layout: "single-page",
     subtitle: "Letter, Number & Pattern Comparison",
     difficulty: "Speed Test",
-    totalQuestions: 44,
+    totalQuestions: 45,
     instructions: [
       "Read each question carefully before selecting your answer.",
       "Work as quickly as possible while maintaining accuracy.",
