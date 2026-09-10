@@ -242,7 +242,7 @@ export const QUESTION_BANKS = {
     layout: "single-page-interest",
     subtitle: "How You Plan, Learn & Handle Exams",
     difficulty: "Self-paced",
-    totalQuestions: 40,
+    totalQuestions: 70,
     instructions: [
       "Read each question carefully before selecting your answer.",
       "Work as quickly as possible while maintaining accuracy.",
